@@ -32,7 +32,7 @@ const MENU_SOURCES = [
   {
     name: "Dakota Café (Cohen Quad)",
     info: "🕐 12:00–13:30 · 💷 £3.80",
-    fetch: fetchCohenQuad,
+    fetch: async () => ["_Cohen Quad back Week 0 Trinity Term (20th April)_"],
   },
   {
     name: "Blavatnik Café",
@@ -88,9 +88,29 @@ async function getTodaysMenu() {
 const EXETER_MENU_URL =
   "https://www.exeter.ox.ac.uk/students/catering/todays-menus/";
 
+function getWeekMonday() {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 async function fetchCohenQuad(today) {
   const { data: html } = await axios.get(EXETER_MENU_URL);
   const $ = cheerio.load(html);
+
+  // Check if the page was updated this week
+  const modified = $('meta[property="article:modified_time"]').attr("content");
+  if (modified) {
+    const modifiedDate = new Date(modified);
+    if (modifiedDate < getWeekMonday()) {
+      console.log(`Dakota: page last updated ${modifiedDate.toDateString()}, menu not yet updated this week.`);
+      return ["_Dakota menu not yet updated this week_"];
+    }
+  }
+
   return parseExeterSection($, "Dakota Café (Cohen Quad)", today);
 }
 

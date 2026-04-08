@@ -77,12 +77,48 @@ async function sendMenuToGroup() {
   }
 }
 
+const LAST_SENT_PATH = path.join(__dirname, "data", "last-sent.json");
+
+function todayKey() {
+  return new Date().toDateString();
+}
+
+function markSent() {
+  const dir = path.dirname(LAST_SENT_PATH);
+  if (!require("fs").existsSync(dir)) require("fs").mkdirSync(dir, { recursive: true });
+  require("fs").writeFileSync(LAST_SENT_PATH, JSON.stringify({ date: todayKey() }));
+}
+
+function alreadySentToday() {
+  try {
+    const data = JSON.parse(require("fs").readFileSync(LAST_SENT_PATH, "utf-8"));
+    return data.date === todayKey();
+  } catch {
+    return false;
+  }
+}
+
+async function catchUpIfMissed() {
+  const now = new Date();
+  const day = now.getDay(); // 0=Sun, 6=Sat
+  const hour = now.getHours();
+  const isWeekday = day >= 1 && day <= 5;
+  const isPast11 = hour >= 11;
+
+  if (isWeekday && isPast11 && !alreadySentToday()) {
+    console.log("Catch-up: missed 11 AM send, sending now...");
+    await sendMenuToGroup();
+    markSent();
+  }
+}
+
 function startCronJob() {
   if (cronStarted) return;
   cronStarted = true;
   cron.schedule("0 11 * * 1-5", async () => {
     console.log("Cron triggered: sending daily menu...");
     await sendMenuToGroup();
+    markSent();
   });
   console.log("Cron job scheduled: 11:00 AM Mon–Fri");
 }
@@ -148,6 +184,7 @@ async function connectToWhatsApp() {
       }
 
       startCronJob();
+      await catchUpIfMissed();
     }
   });
 

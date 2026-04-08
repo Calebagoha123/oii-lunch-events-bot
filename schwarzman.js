@@ -259,7 +259,7 @@ async function fetchSchwarzman(_today) {
       : null;
     const stale = cachedMonday !== getWeekMonday().toDateString();
     const lines = formatMenu(cached.menu);
-    if (stale && lines.length) lines.unshift("_Menu not yet updated this week_");
+    if (stale) return ["_Schwarzman menu not available yet this week_"];
     return lines;
   } catch {
     return [];

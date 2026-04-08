@@ -19,7 +19,7 @@ This is a Node.js WhatsApp bot that scrapes daily lunch menus from multiple Oxfo
 
 **Main modules:**
 
-- **`index.js`** — Entry point. Initializes WhatsApp client (via `whatsapp-web.js`/Puppeteer), handles QR auth, registers cron job (11 AM Mon–Fri), listens for `!menu` commands in the group.
+- **`index.js`** — Entry point. Initializes WhatsApp client (via `@whiskeysockets/baileys`), handles QR auth, registers cron job (11 AM Mon–Fri), listens for `!menu` and `!refresh` commands in the group.
 - **`scraper.js`** — Fetches the Dakota Café menu by scraping the Exeter College website with Axios + Cheerio. Also orchestrates combining all menus into one formatted message via `MENU_SOURCES`.
 - **`blavatnik.js`** — Fetches the Blavatnik Café menu by connecting to Gmail via IMAP (`imapflow`), extracting PNG attachments from emails with subject "Weekly Menu Update", sending the image to Claude Vision API (`@anthropic-ai/sdk`) for text extraction, and caching results in `data/blavatnik-menu.json` weekly.
 - **`schwarzman.js`** — Fetches the Schwarzman Centre "Build Your Own" menu via the same Gmail/IMAP/Claude Vision pipeline, searching for emails with subject "Schwarzman Menu". Returns a category-based format (Base, Sides, Protein, etc.). Cached weekly in `data/schwarzman-menu.json`.
@@ -44,7 +44,7 @@ ANTHROPIC_API_KEY=     # Anthropic API key for Claude Vision
 
 ## Deployment Notes
 
-- **WhatsApp auth**: On first run, scan the QR code. The session is persisted in `.wwebjs_auth/`. Keep this directory across restarts.
-- **EC2/memory-constrained**: Puppeteer is already configured with `--single-process`, `--no-sandbox`, `--disable-dev-shm-usage`, etc. to reduce memory on t2.micro.
+- **WhatsApp auth**: On first run, scan the QR code (saved to `qr-code.png`). The session is persisted in `auth_info_baileys/`. Keep this directory across restarts.
+- **Hosting**: Run on a residential or office network — cloud provider IPs (e.g. AWS EC2) are blocked by WhatsApp's infrastructure.
 - **Runtime data**: `data/blavatnik-menu.json` and `data/schwarzman-menu.json` are auto-created; they cache menus to avoid redundant Gmail/Claude API calls.
 - Use PM2 or systemd to keep the process running persistently.

@@ -127,20 +127,14 @@ describe("fetchCohenQuad", () => {
 describe("getTodaysMenu", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("includes Cohen Quad section when items are returned", async () => {
-    axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML });
+  test("includes Cohen Quad section with placeholder when café is temporarily closed", async () => {
     fetchBlavatnik.mockResolvedValue([]);
     fetchSchwarzman.mockResolvedValue([]);
-
-    // Force a day that has items in the mock HTML
-    jest.spyOn(Date.prototype, "getDay").mockReturnValue(1); // Monday
 
     const msg = await getTodaysMenu();
     expect(msg).toContain("Lunch Menu");
     expect(msg).toContain("Dakota Café (Cohen Quad)");
-    expect(msg).toContain("Pasta Bolognese");
-
-    jest.restoreAllMocks();
+    expect(msg).toContain("Cohen Quad back Week 0 Trinity Term (20th April)");
   });
 
   test("includes Blavatnik section when items are returned", async () => {
@@ -186,22 +180,23 @@ describe("getTodaysMenu", () => {
     jest.restoreAllMocks();
   });
 
-  test("shows fallback message when all sources return nothing", async () => {
-    axios.get.mockResolvedValue({ data: "<html><body></body></html>" });
+  test("Dakota placeholder always present even when other sources return nothing", async () => {
     fetchBlavatnik.mockResolvedValue([]);
     fetchSchwarzman.mockResolvedValue([]);
 
     const msg = await getTodaysMenu();
-    expect(msg).toContain("No menu items found for today");
+    expect(msg).toContain("Dakota Café (Cohen Quad)");
+    expect(msg).toContain("Cohen Quad back Week 0 Trinity Term");
+    expect(msg).not.toContain("No menu items found for today");
   });
 
   test("continues if one source throws", async () => {
-    axios.get.mockRejectedValue(new Error("Network error"));
-    fetchSchwarzman.mockResolvedValue([]);
+    fetchSchwarzman.mockRejectedValue(new Error("Network error"));
     fetchBlavatnik.mockResolvedValue(["• Tomato Soup — ~120kcal"]);
 
     const msg = await getTodaysMenu();
     expect(msg).toContain("Blavatnik Café");
-    expect(msg).not.toContain("Dakota Café (Cohen Quad)");
+    expect(msg).toContain("Dakota Café (Cohen Quad)");
+    expect(msg).not.toContain("Schwarzman Centre");
   });
 });
