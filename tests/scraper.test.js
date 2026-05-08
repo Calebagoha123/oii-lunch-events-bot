@@ -125,16 +125,22 @@ describe("fetchCohenQuad", () => {
 // ── getTodaysMenu ─────────────────────────────────────────────────────────────
 
 describe("getTodaysMenu", () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML });
+  });
 
-  test("includes Cohen Quad section with placeholder when café is temporarily closed", async () => {
+  test("includes Cohen Quad menu items when scraper returns data", async () => {
     fetchBlavatnik.mockResolvedValue([]);
     fetchSchwarzman.mockResolvedValue([]);
+    jest.spyOn(Date.prototype, "getDay").mockReturnValue(2); // Tuesday
 
     const msg = await getTodaysMenu();
     expect(msg).toContain("Lunch Menu");
     expect(msg).toContain("Dakota Café (Cohen Quad)");
-    expect(msg).toContain("Cohen Quad back Week 0 Trinity Term (20th April)");
+    expect(msg).toContain("Fish & Chips");
+
+    jest.restoreAllMocks();
   });
 
   test("includes Blavatnik section when items are returned", async () => {
@@ -166,7 +172,6 @@ describe("getTodaysMenu", () => {
   });
 
   test("includes all sections when all return items", async () => {
-    axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML });
     fetchBlavatnik.mockResolvedValue(["• Tomato Soup — ~120kcal"]);
     fetchSchwarzman.mockResolvedValue(["*1 Base + 1 Protein + 2 Sides*"]);
 
@@ -180,23 +185,25 @@ describe("getTodaysMenu", () => {
     jest.restoreAllMocks();
   });
 
-  test("Dakota placeholder always present even when other sources return nothing", async () => {
+  test("shows 'No menu items' when all sources return nothing", async () => {
+    axios.get.mockResolvedValue({ data: "<html><body></body></html>" });
     fetchBlavatnik.mockResolvedValue([]);
     fetchSchwarzman.mockResolvedValue([]);
 
     const msg = await getTodaysMenu();
-    expect(msg).toContain("Dakota Café (Cohen Quad)");
-    expect(msg).toContain("Cohen Quad back Week 0 Trinity Term");
-    expect(msg).not.toContain("No menu items found for today");
+    expect(msg).toContain("No menu items found for today");
   });
 
   test("continues if one source throws", async () => {
     fetchSchwarzman.mockRejectedValue(new Error("Network error"));
     fetchBlavatnik.mockResolvedValue(["• Tomato Soup — ~120kcal"]);
+    jest.spyOn(Date.prototype, "getDay").mockReturnValue(2); // Tuesday
 
     const msg = await getTodaysMenu();
     expect(msg).toContain("Blavatnik Café");
     expect(msg).toContain("Dakota Café (Cohen Quad)");
     expect(msg).not.toContain("Schwarzman Centre");
+
+    jest.restoreAllMocks();
   });
 });

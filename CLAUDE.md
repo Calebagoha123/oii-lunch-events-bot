@@ -5,10 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm install          # Install dependencies
-npm start            # Start the bot
-npm test             # Run tests (Jest)
-node index.js --send-now  # Send today's menu immediately (useful for testing)
+docker compose up --build              # First run (foreground, scan QR from logs)
+docker compose up -d                   # Detached after auth
+docker compose logs -f                 # Tail logs
+docker compose down                    # Stop
+
+docker compose run --rm bot node index.js --send-now   # Send today's menu and exit
+
+npm install && npm test                # Tests run on the host, not in Docker
 ```
 
 Tests live in `tests/` and use Jest with mocked external dependencies (IMAP, Axios, Anthropic SDK).
@@ -40,11 +44,12 @@ GROUP_NAME=            # Exact WhatsApp group name to send menus to
 GMAIL_USER=            # Gmail address receiving Blavatnik menu emails
 GMAIL_APP_PASSWORD=    # Gmail App Password (requires 2FA enabled)
 ANTHROPIC_API_KEY=     # Anthropic API key for Claude Vision
+ALERT_EMAIL=           # Where logout/error alerts are sent
 ```
 
 ## Deployment Notes
 
-- **WhatsApp auth**: On first run, scan the QR code (saved to `qr-code.png`). The session is persisted in `auth_info_baileys/`. Keep this directory across restarts.
+- **Containerised**: The bot runs in Docker via `docker-compose.yml`. `auth_info_baileys/` and `data/` are bind-mounted from the host so auth and menu caches survive container rebuilds.
+- **WhatsApp auth**: On first run, scan the QR code printed to container logs. The session is persisted in `./auth_info_baileys/`.
 - **Hosting**: Run on a residential or office network — cloud provider IPs (e.g. AWS EC2) are blocked by WhatsApp's infrastructure.
-- **Runtime data**: `data/blavatnik-menu.json` and `data/schwarzman-menu.json` are auto-created; they cache menus to avoid redundant Gmail/Claude API calls.
-- Use PM2 or systemd to keep the process running persistently.
+- **Restart policy**: `restart: unless-stopped` in compose handles crashes and host reboots; no PM2 needed.

@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    container_name: lunch-bot
+    env_file: .env
+    volumes:
+      - ./auth_info_baileys:/app/auth_info_baileys
+      - ./data:/app/data
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
