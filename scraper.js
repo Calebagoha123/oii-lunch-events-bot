@@ -32,7 +32,7 @@ const MENU_SOURCES = [
   {
     name: "Dakota Café (Cohen Quad)",
     info: "🕐 12:00–13:30 · 💷 £3.80",
-    fetch: async () => ["_Cohen Quad back Week 0 Trinity Term (20th April)_"],
+    fetch: fetchCohenQuad,
   },
   {
     name: "Blavatnik Café",

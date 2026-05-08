@@ -40,19 +40,11 @@ Users in the group can type:
 
 ### Prerequisites
 
-- Node.js 18+
+- Docker (Desktop on Mac/Windows, or Engine on Linux)
 - A Gmail account that receives the Blavatnik and Schwarzman menu emails
 - A Gmail App Password (requires 2FA enabled on the account)
 - An Anthropic API key (for Claude Vision image parsing)
 - A WhatsApp account to run the bot from
-
-### Installation
-
-```bash
-git clone <repo>
-cd whatsapp-menu-bot
-npm install
-```
 
 ### Environment variables
 
@@ -63,42 +55,58 @@ GROUP_NAME=          # Exact name of the WhatsApp group to send menus to
 GMAIL_USER=          # Gmail address that receives the menu emails
 GMAIL_APP_PASSWORD=  # Gmail App Password (not your regular password)
 ANTHROPIC_API_KEY=   # Anthropic API key for Claude Vision
+ALERT_EMAIL=         # Where to send error alerts (e.g. logout notifications)
 ```
 
 ### First run
 
 ```bash
-npm start
+docker compose up --build
 ```
 
-On first run a QR code will be saved to `qr-code.png` and opened automatically. Scan it with WhatsApp on your phone. The session is persisted in `auth_info_baileys/` and reused on subsequent starts.
+Run it in the foreground the first time. A QR code prints to the logs — scan it with WhatsApp on your phone. The session is persisted in `./auth_info_baileys/` (bind-mounted from the host) and reused on subsequent starts.
+
+Once authenticated, Ctrl-C and start it detached:
+
+```bash
+docker compose up -d
+docker compose logs -f   # to watch
+```
 
 ### Sending the menu immediately (for testing)
 
 ```bash
-node index.js --send-now
+docker compose run --rm bot node index.js --send-now
 ```
 
 This connects, sends today's menu to the group, and exits.
 
-## Deployment
-
-The bot needs to run persistently on a machine that stays online. The recommended approach is to run it locally (or on a home server/VPS) with PM2:
+### Running tests
 
 ```bash
-npm install -g pm2
-pm2 start index.js --name lunch-bot
-pm2 save
-pm2 startup   # follow the printed instructions to auto-start on reboot
+npm install        # only needed if running tests outside Docker
+npm test
 ```
 
-### A note on hosting
+## Deployment
 
-The bot originally ran on an AWS EC2 instance, but WhatsApp's infrastructure started blocking connections from cloud provider IP ranges, causing repeated disconnections. Running it on a regular residential/office network (or a VPS not flagged as a data centre) resolves this. The Baileys library handles reconnection automatically for normal network blips.
+The container is designed to run on a laptop or a small always-on machine on a residential/office network. **Avoid cloud providers** — WhatsApp's infrastructure blocks connections from common cloud IP ranges (AWS, GCP, etc.) and the bot will be repeatedly disconnected.
+
+`restart: unless-stopped` in `docker-compose.yml` handles crashes and host reboots automatically as long as Docker is running.
 
 ### Keeping the session alive
 
-WhatsApp occasionally requires re-authentication. The bot sends an email alert to a configured address if it gets logged out. To re-authenticate, restart the process and scan the QR code again.
+WhatsApp occasionally requires re-authentication. The bot sends an email to `ALERT_EMAIL` if it gets logged out and exits. To re-authenticate:
+
+```bash
+docker compose up      # foreground, scan the new QR
+# Ctrl-C once authenticated
+docker compose up -d   # back to detached
+```
+
+### A note on running from a laptop
+
+The bot fires at 11:00 AM weekdays. If your laptop is asleep, closed, or offline at that time, the menu won't go out. For reliable daily delivery, run the container on a machine that stays awake during weekday mornings (a home Mac mini, a desktop, a Pi, etc.).
 
 ## Adding a new café
 

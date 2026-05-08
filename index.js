@@ -1,7 +1,6 @@
 require("dotenv").config();
 const QRCode = require("qrcode");
 const nodemailer = require("nodemailer");
-const { execSync } = require("child_process");
 const path = require("path");
 const cron = require("node-cron");
 const { getTodaysMenu } = require("./scraper");
@@ -23,7 +22,8 @@ let cronStarted = false;
 async function sendAlert(subject, body) {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
-  if (!user || !pass) return;
+  const to = process.env.ALERT_EMAIL;
+  if (!user || !pass || !to) return;
   try {
     const transporter = nodemailer.createTransport({
       service: "gmail",
@@ -31,7 +31,7 @@ async function sendAlert(subject, body) {
     });
     await transporter.sendMail({
       from: user,
-      to: "calebagoha@gmail.com",
+      to,
       subject: `[lunch-bot] ${subject}`,
       text: body,
     });
@@ -72,7 +72,7 @@ async function sendMenuToGroup() {
     console.error("Error sending menu:", err.message);
     await sendAlert(
       "Failed to send menu",
-      `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nCheck PM2 logs: pm2 logs lunch-bot`
+      `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nCheck logs: docker compose logs --tail=200 bot`
     );
   }
 }
@@ -139,7 +139,6 @@ async function connectToWhatsApp() {
   sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: false,
     logger: pino({ level: "silent" }),
   });
 
@@ -149,12 +148,8 @@ async function connectToWhatsApp() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      const qrPath = path.join(__dirname, "qr-code.png");
-      await QRCode.toFile(qrPath, qr, { width: 400, margin: 2 });
-      console.log(`QR code saved to: ${qrPath}`);
-      try {
-        execSync(`open "${qrPath}"`);
-      } catch {}
+      console.log("\nScan this QR with WhatsApp on your phone:\n");
+      console.log(await QRCode.toString(qr, { type: "terminal", small: true }));
     }
 
     if (connection === "close") {

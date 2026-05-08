@@ -10,6 +10,9 @@
   "author": "",
   "license": "ISC",
   "description": "",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
@@ -20,6 +23,7 @@
     "mailparser": "^3.7.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^8.0.1",
+    "pino": "^9.5.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5"
   },

@@ -1,0 +1,13 @@
+node_modules
+auth_info_baileys
+data
+.env
+.git
+.github
+.gitignore
+.DS_Store
+*.log
+qr-code.png
+README.md
+CLAUDE.md
+tests
