@@ -43,6 +43,10 @@ const MOCK_EXETER_HTML = `
 </body></html>
 `;
 
+const STALE_MODIFIED_META = `
+<meta property="article:modified_time" content="2026-05-08T10:00:00+00:00" />
+`;
+
 // ── parseExeterSection ────────────────────────────────────────────────────────
 
 describe("parseExeterSection", () => {
@@ -108,6 +112,21 @@ describe("fetchCohenQuad", () => {
     const items = await fetchCohenQuad("Wednesday");
     expect(items).toContain("• Roast Chicken • Roast Potatoes • Gravy");
     expect(items.join("\n")).not.toMatch(/Monday|Tuesday|Thursday|Friday/);
+  });
+
+  test("uses parsed menu items even when WordPress modified metadata is stale", async () => {
+    axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML.replace("<html><body>", `<html><head>${STALE_MODIFIED_META}</head><body>`) });
+    const items = await fetchCohenQuad("Monday");
+    expect(items).toContain("• Pasta Bolognese • Roasted Tomato Sauce • Parmesan");
+    expect(items).not.toContain("_Dakota menu not yet updated this week_");
+  });
+
+  test("shows stale update notice only when no Dakota items can be parsed", async () => {
+    axios.get.mockResolvedValue({
+      data: `<html><head>${STALE_MODIFIED_META}</head><body><h2>Dakota Café (Cohen Quad)</h2><h2>Hall</h2></body></html>`,
+    });
+    const items = await fetchCohenQuad("Monday");
+    expect(items).toEqual(["_Dakota menu not yet updated this week_"]);
   });
 
   test("returns empty array when site has no matching section", async () => {

@@ -3,6 +3,8 @@ services:
     build: .
     container_name: lunch-bot
     env_file: .env
+    environment:
+      TZ: Europe/London
     volumes:
       - ./auth_info_baileys:/app/auth_info_baileys
       - ./data:/app/data

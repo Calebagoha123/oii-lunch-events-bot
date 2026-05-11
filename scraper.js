@@ -100,6 +100,8 @@ function getWeekMonday() {
 async function fetchCohenQuad(today) {
   const { data: html } = await axios.get(EXETER_MENU_URL);
   const $ = cheerio.load(html);
+  const lines = parseExeterSection($, "Dakota Café (Cohen Quad)", today);
+  if (lines.length) return lines;
 
   // Check if the page was updated this week
   const modified = $('meta[property="article:modified_time"]').attr("content");
@@ -111,7 +113,7 @@ async function fetchCohenQuad(today) {
     }
   }
 
-  return parseExeterSection($, "Dakota Café (Cohen Quad)", today);
+  return lines;
 }
 
 /**

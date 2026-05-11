@@ -1,11 +1,11 @@
 require("dotenv").config();
 const QRCode = require("qrcode");
 const nodemailer = require("nodemailer");
-const path = require("path");
 const cron = require("node-cron");
 const { getTodaysMenu } = require("./scraper");
 const { checkForNewMenu: refreshBlavatnik } = require("./blavatnik");
 const { checkForNewSchwarzmanMenu: refreshSchwarzman } = require("./schwarzman");
+const { alreadyClaimedToday, claimDailySend, completeDailySend } = require("./dailySend");
 
 const GROUP_NAME = process.env.GROUP_NAME;
 if (!GROUP_NAME) {
@@ -18,6 +18,8 @@ const SEND_NOW = process.argv.includes("--send-now");
 let sock;
 let groupJid = null;
 let cronStarted = false;
+let reconnectTimer = null;
+let connectInProgress = false;
 
 async function sendAlert(subject, body) {
   const user = process.env.GMAIL_USER;
@@ -63,39 +65,36 @@ async function sendMenuToGroup() {
       const msg = `Group "${GROUP_NAME}" not found.`;
       console.error(msg);
       await sendAlert("Group not found", msg);
-      return;
+      return false;
     }
     const menu = await getTodaysMenu();
     await sock.sendMessage(groupJid, { text: menu });
     console.log(`Menu sent to "${GROUP_NAME}".`);
+    return true;
   } catch (err) {
     console.error("Error sending menu:", err.message);
     await sendAlert(
       "Failed to send menu",
       `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nCheck logs: docker compose logs --tail=200 bot`
     );
-  }
-}
-
-const LAST_SENT_PATH = path.join(__dirname, "data", "last-sent.json");
-
-function todayKey() {
-  return new Date().toDateString();
-}
-
-function markSent() {
-  const dir = path.dirname(LAST_SENT_PATH);
-  if (!require("fs").existsSync(dir)) require("fs").mkdirSync(dir, { recursive: true });
-  require("fs").writeFileSync(LAST_SENT_PATH, JSON.stringify({ date: todayKey() }));
-}
-
-function alreadySentToday() {
-  try {
-    const data = JSON.parse(require("fs").readFileSync(LAST_SENT_PATH, "utf-8"));
-    return data.date === todayKey();
-  } catch {
     return false;
   }
+}
+
+async function sendDailyMenu(reason) {
+  const claim = claimDailySend(reason);
+  if (!claim.claimed) {
+    console.log(`Daily menu skipped: ${claim.reason}.`);
+    return false;
+  }
+
+  const sent = await sendMenuToGroup();
+  completeDailySend(
+    claim,
+    sent ? "sent" : "failed",
+    sent ? undefined : "sendMenuToGroup returned false",
+  );
+  return sent;
 }
 
 async function catchUpIfMissed() {
@@ -105,10 +104,9 @@ async function catchUpIfMissed() {
   const isWeekday = day >= 1 && day <= 5;
   const isPast11 = hour >= 11;
 
-  if (isWeekday && isPast11 && !alreadySentToday()) {
+  if (isWeekday && isPast11 && !alreadyClaimedToday()) {
     console.log("Catch-up: missed 11 AM send, sending now...");
-    await sendMenuToGroup();
-    markSent();
+    await sendDailyMenu("catch-up");
   }
 }
 
@@ -117,13 +115,39 @@ function startCronJob() {
   cronStarted = true;
   cron.schedule("0 11 * * 1-5", async () => {
     console.log("Cron triggered: sending daily menu...");
-    await sendMenuToGroup();
-    markSent();
+    await sendDailyMenu("cron");
   });
   console.log("Cron job scheduled: 11:00 AM Mon–Fri");
 }
 
+function scheduleReconnect(statusCode) {
+  if (reconnectTimer) return;
+
+  console.log(`Connection closed (code ${statusCode}), reconnecting...`);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectToWhatsApp();
+  }, 5000);
+}
+
 async function connectToWhatsApp() {
+  if (connectInProgress) return;
+  connectInProgress = true;
+  try {
+    await createWhatsAppSocket();
+  } catch (err) {
+    console.error("Fatal startup error:", err.message);
+    await sendAlert(
+      "Startup failed",
+      `The lunch bot failed while starting WhatsApp.\n\nError: ${err.message}`
+    );
+    scheduleReconnect("startup-error");
+  } finally {
+    connectInProgress = false;
+  }
+}
+
+async function createWhatsAppSocket() {
   const {
     default: makeWASocket,
     useMultiFileAuthState,
@@ -136,15 +160,18 @@ async function connectToWhatsApp() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
   const { version } = await fetchLatestBaileysVersion();
 
-  sock = makeWASocket({
+  const activeSock = makeWASocket({
     version,
     auth: state,
     logger: pino({ level: "silent" }),
   });
+  sock = activeSock;
 
-  sock.ev.on("creds.update", saveCreds);
+  activeSock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", async (update) => {
+  activeSock.ev.on("connection.update", async (update) => {
+    if (activeSock !== sock) return;
+
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
@@ -164,8 +191,7 @@ async function connectToWhatsApp() {
         );
         process.exit(1);
       } else {
-        console.log(`Connection closed (code ${statusCode}), reconnecting...`);
-        connectToWhatsApp();
+        scheduleReconnect(statusCode);
       }
     }
 
@@ -183,7 +209,8 @@ async function connectToWhatsApp() {
     }
   });
 
-  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+  activeSock.ev.on("messages.upsert", async ({ messages, type }) => {
+    if (activeSock !== sock) return;
     if (type !== "notify") return;
 
     for (const msg of messages) {
