@@ -1,5 +1,6 @@
 const axios = require("axios");
 const cheerio = require("cheerio");
+const Anthropic = require("@anthropic-ai/sdk");
 const { fetchBlavatnik } = require("./blavatnik");
 const { fetchSchwarzman } = require("./schwarzman");
 
@@ -16,6 +17,8 @@ const DAYS = [
 const DAY_PREFIX_RE = new RegExp(
   `^(${DAYS.join("|")})\\s*[–—-]\\s*`,
 );
+
+const CLAUDE_MODEL = "claude-sonnet-4-5-20250929";
 
 function stripCalories(text) {
   return text
@@ -61,15 +64,15 @@ async function getTodaysMenu() {
   let msg = `🍽 *Lunch Menu*\n📅 ${dateStr}\n`;
 
   let anyItems = false;
+  const sections = [];
+  const punContext = [];
   for (const source of MENU_SOURCES) {
     try {
       const items = await source.fetch(today);
       if (items.length) {
         anyItems = true;
-        msg += `\n*--- ${source.name} ---*\n`;
-        msg += `${source.info}\n`;
-        msg += items.join("\n");
-        msg += "\n";
+        sections.push(`\n*--- ${source.name} ---*\n${source.info}\n${items.join("\n")}\n`);
+        punContext.push(`${source.name}: ${items.join("; ")}`);
       }
     } catch (err) {
       console.error(`Error fetching ${source.name}:`, err.message);
@@ -78,9 +81,42 @@ async function getTodaysMenu() {
 
   if (!anyItems) {
     msg += "\nNo menu items found for today.";
+  } else {
+    const pun = await generateMenuPun(punContext.join("\n"));
+    if (pun) msg += `💬 _${pun}_\n`;
+    msg += sections.join("");
   }
 
   return msg;
+}
+
+async function generateMenuPun(menuContext) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !menuContext.trim()) return null;
+
+  try {
+    const anthropic = new Anthropic({ apiKey });
+    const response = await anthropic.messages.create({
+      model: CLAUDE_MODEL,
+      max_tokens: 80,
+      messages: [
+        {
+          role: "user",
+          content: `Write exactly one short lunch pun based on these menu items.
+Keep it under 16 words. No quotes, no markdown, no emoji. Make it friendly, not cringe.
+
+Menu:
+${menuContext}`,
+        },
+      ],
+    });
+
+    const text = response.content?.[0]?.text || "";
+    return text.replace(/\s+/g, " ").replace(/^["']|["']$/g, "").trim().slice(0, 140) || null;
+  } catch (err) {
+    console.error("Error generating menu pun:", err.message);
+    return null;
+  }
 }
 
 // --- Cohen Quad (Exeter College) ---
@@ -193,4 +229,4 @@ function parseExeterSection($, sectionName, today) {
   return lines;
 }
 
-module.exports = { getTodaysMenu, fetchCohenQuad, parseExeterSection };
+module.exports = { getTodaysMenu, fetchCohenQuad, parseExeterSection, generateMenuPun };
