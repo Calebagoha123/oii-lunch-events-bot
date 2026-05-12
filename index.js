@@ -18,6 +18,7 @@ const SEND_NOW = process.argv.includes("--send-now");
 let sock;
 let groupJid = null;
 let cronStarted = false;
+let catchUpTimerStarted = false;
 let reconnectTimer = null;
 let connectInProgress = false;
 
@@ -120,6 +121,17 @@ function startCronJob() {
   console.log("Cron job scheduled: 11:00 AM Mon–Fri");
 }
 
+function startCatchUpTimer() {
+  if (catchUpTimerStarted) return;
+  catchUpTimerStarted = true;
+  setInterval(() => {
+    catchUpIfMissed().catch((err) => {
+      console.error("Catch-up check failed:", err.message);
+    });
+  }, 60 * 1000);
+  console.log("Catch-up checker scheduled: every 60 seconds");
+}
+
 function scheduleReconnect(statusCode) {
   if (reconnectTimer) return;
 
@@ -205,6 +217,7 @@ async function createWhatsAppSocket() {
       }
 
       startCronJob();
+      startCatchUpTimer();
       await catchUpIfMissed();
     }
   });
