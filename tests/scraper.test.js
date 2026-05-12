@@ -2,14 +2,14 @@ const cheerio = require("cheerio");
 const axios = require("axios");
 
 jest.mock("axios");
-jest.mock("@anthropic-ai/sdk");
 jest.mock("../blavatnik");
 jest.mock("../schwarzman");
+jest.mock("../puns");
 
-const Anthropic = require("@anthropic-ai/sdk");
 const { parseExeterSection, fetchCohenQuad, getTodaysMenu } = require("../scraper");
 const { fetchBlavatnik } = require("../blavatnik");
 const { fetchSchwarzman } = require("../schwarzman");
+const { getDailyPun } = require("../puns");
 
 // Realistic mock of the Exeter menu page structure
 const MOCK_EXETER_HTML = `
@@ -146,20 +146,10 @@ describe("fetchCohenQuad", () => {
 // ── getTodaysMenu ─────────────────────────────────────────────────────────────
 
 describe("getTodaysMenu", () => {
-  const originalApiKey = process.env.ANTHROPIC_API_KEY;
-
   beforeEach(() => {
     jest.clearAllMocks();
-    delete process.env.ANTHROPIC_API_KEY;
+    getDailyPun.mockReturnValue(null);
     axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML });
-  });
-
-  afterAll(() => {
-    if (originalApiKey) {
-      process.env.ANTHROPIC_API_KEY = originalApiKey;
-    } else {
-      delete process.env.ANTHROPIC_API_KEY;
-    }
   });
 
   test("includes Cohen Quad menu items when scraper returns data", async () => {
@@ -239,41 +229,15 @@ describe("getTodaysMenu", () => {
     jest.restoreAllMocks();
   });
 
-  test("adds a short Claude-generated pun when an API key is configured", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
-    Anthropic.mockImplementation(() => ({
-      messages: {
-        create: jest.fn().mockResolvedValue({
-          content: [{ text: "This lunch is nacho average Tuesday." }],
-        }),
-      },
-    }));
+  test("adds the daily pun when one is available", async () => {
+    getDailyPun.mockReturnValue("This lunch is a big dill.");
     fetchBlavatnik.mockResolvedValue([]);
     fetchSchwarzman.mockResolvedValue([]);
     jest.spyOn(Date.prototype, "getDay").mockReturnValue(2); // Tuesday
 
     const msg = await getTodaysMenu();
-    expect(msg).toContain("💬 _This lunch is nacho average Tuesday._");
+    expect(msg).toContain("💬 _This lunch is a big dill._");
     expect(msg).toContain("Dakota Café (Cohen Quad)");
-
-    jest.restoreAllMocks();
-  });
-
-  test("still returns the menu when Claude pun generation fails", async () => {
-    process.env.ANTHROPIC_API_KEY = "test-key";
-    Anthropic.mockImplementation(() => ({
-      messages: {
-        create: jest.fn().mockRejectedValue(new Error("Claude unavailable")),
-      },
-    }));
-    fetchBlavatnik.mockResolvedValue([]);
-    fetchSchwarzman.mockResolvedValue([]);
-    jest.spyOn(Date.prototype, "getDay").mockReturnValue(2); // Tuesday
-
-    const msg = await getTodaysMenu();
-    expect(msg).toContain("Dakota Café (Cohen Quad)");
-    expect(msg).toContain("Fish & Chips");
-    expect(msg).not.toContain("💬");
 
     jest.restoreAllMocks();
   });
