@@ -21,6 +21,37 @@ let cronStarted = false;
 let catchUpTimerStarted = false;
 let reconnectTimer = null;
 let connectInProgress = false;
+const recentMessages = new Map();
+const MAX_RECENT_MESSAGES = 200;
+
+function rememberMessage(msg) {
+  const id = msg?.key?.id;
+  if (!id || !msg.message) return;
+
+  recentMessages.set(id, msg.message);
+  if (recentMessages.size > MAX_RECENT_MESSAGES) {
+    const oldestId = recentMessages.keys().next().value;
+    recentMessages.delete(oldestId);
+  }
+}
+
+// Sending a message makes Baileys mark this device as "available" (online),
+// which suppresses push notifications on the phone. Re-assert "unavailable"
+// so notifications keep flowing to the phone.
+async function markUnavailable() {
+  try {
+    await sock?.sendPresenceUpdate("unavailable");
+  } catch (err) {
+    console.error("Failed to mark presence unavailable:", err.message);
+  }
+}
+
+async function sendMessageAndRemember(jid, content, options) {
+  const sentMessage = await sock.sendMessage(jid, content, options);
+  rememberMessage(sentMessage);
+  await markUnavailable();
+  return sentMessage;
+}
 
 async function sendAlert(subject, body) {
   const user = process.env.GMAIL_USER;
@@ -69,7 +100,7 @@ async function sendMenuToGroup() {
       return false;
     }
     const menu = await getTodaysMenu();
-    await sock.sendMessage(groupJid, { text: menu });
+    await sendMessageAndRemember(groupJid, { text: menu });
     console.log(`Menu sent to "${GROUP_NAME}".`);
     return true;
   } catch (err) {
@@ -176,6 +207,8 @@ async function createWhatsAppSocket() {
     version,
     auth: state,
     logger: pino({ level: "silent" }),
+    markOnlineOnConnect: false,
+    getMessage: async (key) => recentMessages.get(key.id),
   });
   sock = activeSock;
 
@@ -209,6 +242,7 @@ async function createWhatsAppSocket() {
 
     if (connection === "open") {
       console.log("WhatsApp connected!");
+      await markUnavailable();
       await cacheGroupJid();
 
       if (SEND_NOW) {
@@ -248,15 +282,15 @@ async function createWhatsAppSocket() {
 
       if (body === "!refresh") {
         console.log(`!refresh requested in "${GROUP_NAME}"`);
-        await sock.sendMessage(chatJid, { text: "Refreshing menus from Gmail..." });
+        await sendMessageAndRemember(chatJid, { text: "Refreshing menus from Gmail..." });
         try {
           await Promise.all([refreshBlavatnik(), refreshSchwarzman()]);
-          await sock.sendMessage(chatJid, {
+          await sendMessageAndRemember(chatJid, {
             text: "Done! Menus refreshed. Send !menu to see the latest.",
           });
         } catch (err) {
           console.error("Error refreshing menus:", err.message);
-          await sock.sendMessage(chatJid, {
+          await sendMessageAndRemember(chatJid, {
             text: "Something went wrong refreshing the menus.",
           });
         }
@@ -266,15 +300,18 @@ async function createWhatsAppSocket() {
       console.log(`!menu requested in "${GROUP_NAME}"`);
       try {
         const menu = await getTodaysMenu();
-        await sock.sendMessage(chatJid, { text: menu });
+        await sendMessageAndRemember(chatJid, { text: menu });
       } catch (err) {
         console.error("Error fetching menu:", err.message);
-        await sock.sendMessage(chatJid, {
+        await sendMessageAndRemember(chatJid, {
           text: "Sorry, I couldn't fetch today's menu. Try again later.",
         });
       }
     }
   });
 }
+
+// Periodically re-assert offline status so the phone keeps getting notifications.
+setInterval(markUnavailable, 5 * 60 * 1000);
 
 connectToWhatsApp();
