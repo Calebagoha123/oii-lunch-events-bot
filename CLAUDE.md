@@ -24,22 +24,23 @@ A Node.js bot that scrapes daily lunch menus from multiple Oxford cafés and pos
 
 **Layering (keep it this way):** `buildMenu()` returns *structured data*; `render/*` turn that into channel-specific messages; `senders/*` deliver them. Formatting must not leak back into the fetchers or `buildMenu`.
 
-**Main modules:**
+**Code lives under `src/`** (entry point `index.js` stays at the repo root). See the "Project layout" section of `README.md` for the full tree. Key modules:
 
-- **`index.js`** — Orchestration only: resolves senders from `SENDERS`, registers the cron job (11 AM Mon–Fri) and catch-up timer, dispatches to senders, handles `--dry-run` / `--send-now` / `--refresh`, sends alerts.
-- **`scraper.js`** — `buildMenu()` fetches every entry in `MENU_SOURCES` and returns `{date, day, pun, sections, errors, stale, onVacation}`. Also scrapes Dakota from the Exeter site (Axios + Cheerio) with vacation/staleness detection via `article:modified_time`.
-- **`render/whatsapp.js`, `render/teams.js`** — pure menu-to-message renderers (Teams emits an Adaptive Card for a Power Automate workflow webhook).
-- **`senders/`** — `teams.js`, `whatsapp.js`, and `index.js` (resolver). Each sender implements `isConfigured / connect / send / close`.
-- **`alerts.js`** — email alerting (degraded sources, send failures, WhatsApp logout).
-- **`blavatnik.js`** — Fetches the Blavatnik Café menu by connecting to Gmail via IMAP (`imapflow`), extracting PNG attachments from emails with subject "Weekly Menu Update", sending the image to Claude Vision API (`@anthropic-ai/sdk`) for text extraction, and caching results in `data/blavatnik-menu.json` weekly.
-- **`schwarzman.js`** — Fetches the Schwarzman Centre "Build Your Own" menu via the same Gmail/IMAP/Claude Vision pipeline, searching for emails with subject "Schwarzman Menu". Returns a category-based format (Base, Sides, Protein, etc.). Cached weekly in `data/schwarzman-menu.json`.
+- **`index.js`** (root) — Orchestration only: resolves senders from `SENDERS`, registers the cron job (11 AM Mon–Fri) and catch-up timer, dispatches to senders, handles `--dry-run` / `--send-now` / `--refresh`, sends alerts.
+- **`src/buildMenu.js`** — `buildMenu()` fetches every `MENU_SOURCES` entry plus the event sources and returns `{date, day, pun, events, sections, errors, stale, onVacation}`.
+- **`src/menus/`** — `dakota.js` (Exeter site scraper, staleness via `article:modified_time`), `blavatnik.js` and `schwarzman.js` (Gmail IMAP → Claude Vision → weekly JSON cache in `data/`).
+- **`src/events/`** — `whatson.js` (Schwarzman What's On, with showtimes) and `nearby.js` (Blavatnik + Andrew Wiles via the oxfevents.com API).
+- **`src/render/`** — pure menu-to-message renderers (`teams.js` emits an Adaptive Card for the workflow webhook).
+- **`src/senders/`** — `teams.js`, `whatsapp.js`, and `index.js` (resolver). Each sender implements `isConfigured / connect / send / close`.
+- **`src/dates.js`, `src/paths.js`** — shared `DAYS`/`getWeekMonday` and repo-root-anchored `data/` + `puns.txt` paths.
+- **`src/alerts.js`, `src/puns.js`, `src/dailySend.js`** — email alerts, daily pun rotation, and the once-per-day send lock.
 
 **Data flow:**
 1. Cron fires at 11 AM (or `--send-now`) → `sendMenu()` in `index.js`
-2. `buildMenu()` fetches every source. Email-based modules check cache freshness; if stale, fetch Gmail → extract image → Claude Vision → JSON cache
-3. A source can signal `stale: true`; if all sources are stale with nothing to show, `onVacation` is set
+2. `buildMenu()` fetches event sources and every menu source. Email-based cafés check cache freshness; if stale, fetch Gmail → extract image → Claude Vision → JSON cache
+3. A source can signal `stale: true`; if every source is stale with nothing to show, `onVacation` is set
 4. Renderers turn the structured menu into per-channel messages; each active sender delivers it
-5. Degraded sources and total failures trigger email alerts via `alerts.js`
+5. Degraded sources and total failures trigger email alerts via `src/alerts.js`
 
 ## Environment Variables
 
@@ -50,4 +51,4 @@ See `.env.example` for the annotated list. Key points: `SENDERS` selects channel
 - **Containerised**: Docker via `docker-compose.yml`. `data/` (and, for WhatsApp only, `auth_info_baileys/`) are bind-mounted so caches/auth survive rebuilds.
 - **Hosting**: Teams is outbound HTTPS — any host works, currently Brains. WhatsApp (deprecated) is blocked on cloud IPs and needs a residential/office network.
 - **Restart policy**: `restart: unless-stopped`; no PM2 needed.
-- See `HANDOVER.md`, `RUNBOOK.md`, `CONTRIBUTING.md` for operations.
+- **Reality check**: production currently runs on Brains as a `systemd --user` service, not Docker. `README.md` covers operations, the redeploy procedure, and the accounts/credentials handover.

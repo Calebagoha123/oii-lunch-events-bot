@@ -1,162 +1,276 @@
 # Oxford Lunch Menu Bot
 
-A Node.js bot that scrapes and compiles daily lunch menus from cafés around Oxford's Schwarzman Centre and posts them to a **Microsoft Teams** channel at 11:00 AM on weekdays. It can also post to WhatsApp (deprecated — see below).
+A Node.js bot that, every weekday at 11:00, posts a single message to a **Microsoft Teams** channel with:
 
-> **New here?** Read `CONTRIBUTING.md` to get running locally in two minutes,
-> `RUNBOOK.md` when something breaks, and `HANDOVER.md` for the accounts and
-> credentials behind it.
+- **What's on around you today** — events at the Schwarzman Centre, the Blavatnik School of Government, and the Andrew Wiles (Maths) building.
+- **The day's lunch menus** from Dakota Café (Cohen Quad), Blavatnik Café, and the Schwarzman Centre — with opening hours, prices, and a daily pun.
+
+It can also post to WhatsApp, but that path is **deprecated** (see [Senders](#senders)).
+
+This README is the single source of truth: setup, development, operations, and handover are all below.
+
+---
+
+## Contents
+
+- [How it works](#how-it-works)
+- [Senders (Teams / WhatsApp)](#senders)
+- [Setting up the Teams webhook](#setting-up-the-teams-webhook)
+- [Project layout](#project-layout)
+- [Environment variables](#environment-variables)
+- [Running it](#running-it)
+- [Local development](#local-development)
+- [Extending it](#extending-it) — adding a café or an events source
+- [Operations / runbook](#operations--runbook)
+- [Handover: accounts & credentials](#handover-accounts--credentials)
+
+---
+
+## How it works
+
+1. A cron job fires at 11:00 Mon–Fri (with a catch-up timer if the host was asleep at 11:00).
+2. `buildMenu()` gathers everything into **structured data** — events, café sections, and staleness flags. It never formats anything.
+3. A **renderer** turns that structure into a message for each channel (`render/whatsapp.js`, `render/teams.js`).
+4. Each active **sender** delivers it (`src/senders/teams.js`, `src/senders/whatsapp.js`).
+
+Menu sources:
+
+- **Dakota Café** — scraped live from the Exeter College catering site.
+- **Blavatnik & Schwarzman cafés** — parsed from a weekly menu image emailed to a Gmail inbox: IMAP fetches the email, Claude Vision reads the image, and the result is cached per week in `data/`.
+
+Event sources:
+
+- **Schwarzman Centre** — scraped from its own What's On page (authoritative), including today's showtimes.
+- **Blavatnik & Andrew Wiles** — from the [oxfevents.com](https://www.oxfevents.com) JSON API, matched by venue.
+
+Every source **fails soft**: a broken source is named in the message and emailed as an alert, never silently dropped, and events never block the lunch menu.
+
+---
 
 ## Senders
 
-The `SENDERS` env var (comma-separated) picks the channel(s):
+The `SENDERS` env var (comma-separated) selects the channel(s):
 
-- `SENDERS=teams` *(default)* — post to Teams via a Power Automate workflow webhook.
-- `SENDERS=teams,whatsapp` — both, for a migration period.
-- `SENDERS=whatsapp` — WhatsApp only (**deprecated**).
+| `SENDERS` | Behaviour |
+|---|---|
+| `teams` *(default)* | Post to Teams via a Power Automate workflow webhook. |
+| `teams,whatsapp` | Post to both — useful during the migration. |
+| `whatsapp` | WhatsApp only (**deprecated**). |
 
-### Deprecation: WhatsApp
+### Why WhatsApp is deprecated
 
-The WhatsApp backend is kept only to bridge the move to Teams. It carries costs
-Teams doesn't: the session is bound to one **personal phone number**, needs a
-**physical QR rescan** from that handset to re-authenticate, and can't run on
-cloud IPs (WhatsApp blocks them). **Once the Teams channel has traction, delete
-`senders/whatsapp.js`, the `@whiskeysockets/baileys` + `qrcode` dependencies,
-and the `auth_info_baileys/` mount.** Nothing else depends on it. Note also that
-`!menu` / `!refresh` commands work on WhatsApp only — on Teams the equivalents
-are `node index.js --send-now` and `node index.js --refresh` (a Teams workflow
-webhook is one-way, so in-channel commands aren't possible without a full bot
-registration).
+The WhatsApp backend carries costs Teams doesn't: the session is bound to one **personal phone number**, needs a **physical QR rescan** from that handset to re-authenticate, and can't run on cloud IPs (WhatsApp blocks them). Teams is an outbound HTTPS POST — none of those problems.
 
-## What it does
+**Once the Teams channel has traction, delete it:** remove `src/senders/whatsapp.js`, the `@whiskeysockets/baileys` and `qrcode` dependencies, and the `auth_info_baileys/` mount. Nothing else depends on it.
 
-Every weekday at 11 AM the bot posts a single message with the day's lunch options from:
+> The in-chat `!menu` / `!refresh` commands work on WhatsApp only — a Teams workflow webhook is one-way. On Teams, use the CLI equivalents `node index.js --send-now` and `node index.js --refresh`.
 
-- **Dakota Café (Cohen Quad)** — scraped from the Exeter College website
-- **Blavatnik Café** — parsed from a weekly menu image sent by email
-- **Schwarzman Centre** — parsed from a weekly "Build Your Own" menu image sent by email
+---
 
-The message includes each café's opening hours, price, and the day's items. For email-based menus, results are cached weekly to avoid redundant API calls.
+## Setting up the Teams webhook
 
-## Architecture
+1. In the target Teams channel, click **⋯ → Workflows**.
+2. Choose the template **"Post to a channel when a webhook request is received."** (Ignore any "Incoming Webhook connector" guide online — Microsoft retired that in May 2026.)
+3. Name it, confirm the team/channel, and finish. It gives you a **webhook URL**.
+4. Put it in `.env`: `SENDERS=teams` and `TEAMS_WEBHOOK_URL=<the url>`.
+5. Add a co-owner in [Power Automate](https://make.powerautomate.com) (**Edit → ⋯ → Manage owners**) so the flow survives one person leaving.
+
+Messages post as the "Workflows" (Flow bot) identity — Microsoft doesn't allow custom bot name/icon over webhooks.
+
+---
+
+## Project layout
 
 ```
-index.js          Entry point. WhatsApp connection, cron job, !menu command handler
-scraper.js        Orchestrates all menu sources into one formatted message
-blavatnik.js      Gmail IMAP → PNG attachment → Claude Vision → structured JSON cache
-schwarzman.js     Gmail IMAP → image attachment → Claude Vision → structured JSON cache
-data/             Weekly JSON caches for Blavatnik and Schwarzman menus
+index.js               Entry point: scheduling, dispatch, CLI flags, alerts
+puns.txt               Rotating daily puns (edit freely)
+src/
+  buildMenu.js         Gathers events + menus into structured data (no formatting)
+  dates.js             Shared DAYS + getWeekMonday
+  paths.js             Repo-root anchored data/ and puns.txt locations
+  menus/
+    dakota.js          Exeter College site scraper (Axios + Cheerio)
+    blavatnik.js       Gmail IMAP → image → Claude Vision → weekly JSON cache
+    schwarzman.js      Same pipeline for the Schwarzman café menu
+  events/
+    whatson.js         Schwarzman Centre What's On scraper (with showtimes)
+    nearby.js          Blavatnik + Andrew Wiles via the oxfevents.com API
+  render/
+    whatsapp.js        Structured menu → WhatsApp text (pure)
+    teams.js           Structured menu → Teams Adaptive Card (pure)
+  senders/
+    index.js           Resolves SENDERS into active backends
+    teams.js           POSTs the card to the workflow webhook
+    whatsapp.js        Baileys backend (deprecated)
+  alerts.js            Email alerts for degraded/failed sends
+  puns.js              Daily pun rotation
+  dailySend.js         Once-per-day send claim/lock store
+tests/                 Jest suites + fixtures (mock IMAP, Axios, Anthropic)
+data/                  Weekly caches, send claims, pun state (bind-mounted, gitignored)
 ```
 
-### Data flow
+**Design rule:** building and rendering are separate. `buildMenu()` returns data; renderers format it. Don't push formatting back into the fetchers or `buildMenu` — that's what keeps `--dry-run` and the tests simple.
 
-1. Cron fires at 11 AM (or `!menu` is typed in the group)
-2. Each email-based module checks if its cache is from the current week
-3. If stale, it connects to Gmail via IMAP, downloads the latest menu image, and sends it to the Claude Vision API for structured extraction
-4. Results are saved to `data/blavatnik-menu.json` and `data/schwarzman-menu.json`
-5. All sources are combined into one message and sent to the WhatsApp group
+---
 
-### Commands & manual triggers
+## Environment variables
 
-On WhatsApp (deprecated), users in the group can type `!menu` and `!refresh`.
+Copy `.env.example` to `.env` and fill it in. For the default Teams setup you need `TEAMS_WEBHOOK_URL`, the Gmail/Anthropic keys for the menu sources, and `ALERT_EMAIL`.
 
-Everywhere, maintainers have CLI equivalents:
-- `node index.js --dry-run` — render today's menu to stdout, no sends, no credentials
-- `node index.js --send-now` — build and post today's menu, then exit
-- `node index.js --refresh` — force a re-read from Gmail (combine with `--send-now` to also post)
+| Variable | Needed for | Notes |
+|---|---|---|
+| `SENDERS` | all | Defaults to `teams`. |
+| `TEAMS_WEBHOOK_URL` | Teams | The Power Automate workflow webhook. |
+| `GMAIL_USER` | Blavatnik/Schwarzman menus | Gmail address receiving the menu emails. |
+| `GMAIL_APP_PASSWORD` | Blavatnik/Schwarzman menus | Gmail App Password (needs 2FA on the account). |
+| `ANTHROPIC_API_KEY` | Blavatnik/Schwarzman menus | Claude Vision image parsing. |
+| `ALERT_EMAIL` | alerting | **Use a shared alias**, not a personal inbox. |
+| `GROUP_NAME` | WhatsApp only | Exact group name; unused for Teams. |
 
-## Setup
+---
 
-### Prerequisites
+## Running it
 
-- Docker (Desktop on Mac/Windows, or Engine on Linux)
-- A Gmail account that receives the Blavatnik and Schwarzman menu emails
-- A Gmail App Password (requires 2FA enabled on the account)
-- An Anthropic API key (for Claude Vision image parsing)
-- A WhatsApp account to run the bot from
+### With Docker (recommended for deployment)
 
-### Environment variables
-
-Copy `.env.example` to `.env` and fill in the values documented there. For the
-default Teams setup you need `TEAMS_WEBHOOK_URL`, the three Gmail/Anthropic keys
-for the menu sources, and `ALERT_EMAIL`. `GROUP_NAME` is only needed if you
-enable the deprecated WhatsApp sender.
-
-### First run (Teams, the default)
-
-Teams needs no QR scan — just a valid `TEAMS_WEBHOOK_URL` in `.env`.
+Teams needs no QR scan — just a valid `TEAMS_WEBHOOK_URL`.
 
 ```bash
-docker compose up -d --build
-docker compose logs -f          # to watch
+docker compose up -d --build     # start
+docker compose logs -f           # watch
+docker compose run --rm bot node index.js --send-now   # post now (test)
 ```
 
-Verify it posts:
+`restart: unless-stopped` handles crashes and reboots. The image is multi-stage and runs as a non-root user.
+
+**Hosting note:** Teams is outbound HTTPS, so any host works. WhatsApp (deprecated) is blocked on cloud IP ranges and must run on a residential/office network. The bot fires at 11:00 weekdays; if the host is asleep then, a catch-up timer sends as soon as it's back online the same day — so run it on an always-on machine.
+
+### Without Docker
 
 ```bash
-docker compose run --rm bot node index.js --send-now
+npm ci
+node index.js                    # run the bot
+node index.js --send-now         # build + post today's menu, then exit
+node index.js --refresh          # force a Gmail re-read (add --send-now to also post)
 ```
 
-### First run (WhatsApp, deprecated)
+---
 
-Only if `SENDERS` includes `whatsapp`: run in the foreground once so the QR code
-prints to the logs, scan it from the paired phone, then Ctrl-C and start
-detached. The session persists in `./auth_info_baileys/`.
-
-### Running tests
+## Local development
 
 ```bash
-npm ci        # exact locked deps (incl. the correct sharp binary)
-npm test
+git clone git@github.com:Calebagoha123/oxford_lunch_menus.git
+cd oxford_lunch_menus
+npm ci        # exact locked deps, incl. the correct platform sharp binary
+npm test      # should be all green
 ```
 
-## Deployment
+> If tests fail on `sharp`, you ran `npm install` instead of `npm ci`, or have a stale `node_modules`. Delete `node_modules` and `npm ci` again. (CI runs `npm ci && npm test` on every PR to catch exactly this.)
 
-Runs in Docker with `restart: unless-stopped`, which handles crashes and host
-reboots as long as Docker is running. Currently hosted on **Brains** (see
-`HANDOVER.md`).
+**The inner loop — `--dry-run`:**
 
-- **Teams** has no hosting restriction — it's an outbound HTTPS POST, so cloud
-  hosts are fine.
-- **WhatsApp** (deprecated) does not work on cloud IP ranges (AWS/GCP/etc. are
-  blocked by WhatsApp) and must run on a residential/office network.
+```bash
+node index.js --dry-run
+```
 
-The bot fires at 11:00 AM weekdays. If the host is asleep or offline at that
-time the menu won't go out; a catch-up timer sends it as soon as the host is
-back online the same weekday. Run it on an always-on machine.
+This builds today's real message and prints both the WhatsApp text and the Teams card JSON. It **sends nothing and needs no credentials** (it just skips the Gmail cafés if keys are absent). Use it to check any formatting or parsing change.
 
-## Adding a new café
+**Testing against a real channel:** make your *own* private Teams channel and webhook, point `TEAMS_WEBHOOK_URL` at it, then `node index.js --send-now`. Never point a dev `.env` at the production channel.
 
-Each menu source is an entry in the `MENU_SOURCES` array in `scraper.js`:
+**Making a change:** branch off `main`, add/adjust a test (every source and renderer has one under `tests/`), get `npm test` green and `--dry-run` looking right, then open a PR. CI runs automatically.
+
+---
+
+## Extending it
+
+### Add a café
+
+Add an entry to `MENU_SOURCES` in `src/buildMenu.js` and a fetcher under `src/menus/`:
 
 ```js
 {
   name: "Café Name",
   info: "🕐 12:00–13:30 · 💷 £X.XX",
-  fetch: async (today) => ["item 1", "item 2"],  // return array of strings
+  fetch: async (today) => ({ items: ["item 1", "item 2"], stale: false }),
 }
 ```
 
-The `fetch` function receives the current day name (e.g. `"Wednesday"`) and returns either an array of formatted strings, or `{ items: string[], stale: boolean }`. Return an empty `items` to omit the café that day; set `stale: true` when you can tell the source hasn't been refreshed this week (e.g. during vacation) so it feeds the "not updated" label and vacation detection. See `CONTRIBUTING.md` for the fuller contract.
+`fetch(today)` receives the day name (e.g. `"Wednesday"`) and returns either `string[]` or `{ items: string[], stale: boolean }`. Return empty `items` to omit the café that day; set `stale: true` when you can tell the source hasn't refreshed this week (e.g. vacation) — that feeds the "not updated" label and vacation detection. For an email-based café, follow `src/menus/blavatnik.js`.
 
-For email-based menus, follow the pattern in `blavatnik.js` or `schwarzman.js`: connect via IMAP, find the relevant email by subject, extract the image attachment, send to Claude Vision with a structured prompt, and cache the result by week.
+### Add an events venue
+
+Add a pattern to `VENUE_GROUPS` in `src/events/nearby.js` (matched against oxfevents venue names), or add a new scraper under `src/events/` and wire it into the `events` array in `buildMenu()`.
+
+> Known cleanup: fetchers still emit WhatsApp-flavoured markup (`*bold*`, `•`) that the Teams renderer translates. Ideally fetchers would return plain structured items and let each renderer decide emphasis — a good first refactor.
+
+---
+
+## Operations / runbook
+
+Diagnosis, in priority order.
+
+**"The menu didn't arrive today."**
+
+1. **Weekday?** The bot only posts Mon–Fri. Weekends are silent by design.
+2. **Vacation?** Out of term the cafés stop updating and the bot posts *"the cafés look closed for the vacation…"* instead of a blank menu — that's correct behaviour, not a bug. Confirm with `node index.js --dry-run`.
+3. **Service running?** On Brains it runs as a `systemd --user` service (not Docker — Docker isn't installed there):
+   ```bash
+   systemctl --user status lunch-bot.service
+   journalctl --user -u lunch-bot.service -n 100 --no-pager
+   systemctl --user restart lunch-bot.service
+   ```
+   Repeated `Connection Closed` lines mean the WhatsApp session dropped — the deprecated backend failing, and the reason to finish the Teams migration.
+4. **Alert email?** Degraded sources, total send failures, and WhatsApp logout all email `ALERT_EMAIL`. No alert + no message usually means the host was asleep at 11:00.
+5. **Force a send:** `node index.js --send-now` (or via Docker, `docker compose run --rm bot node index.js --send-now`).
+
+**"One café is missing / says 'not updated this week'."**
+
+- This is shown on purpose — degraded and stale sources are labelled, not hidden.
+- **Dakota missing:** the Exeter page structure or `EXETER_MENU_URL` may have changed (`src/menus/dakota.js`).
+- **Blavatnik/Schwarzman missing:** usually the menu email didn't arrive, or its **subject line changed**. The IMAP search matches exact subjects (`"Weekly Menu Update"`, `"Schwarzman Menu"`). Force a re-read: `node index.js --refresh --send-now`. To force a fresh Vision parse, delete the relevant `data/*-menu.json` first.
+
+**Redeploying to Brains.** The repo there is a plain copy (not a git clone) and may run older code:
+
+```bash
+ssh <maintainer>@brains.oii.ox.ac.uk
+cd ~/oxford_lunch_menus && cp .env /tmp/lunch.env && cp -r data /tmp/lunch-data
+cd ~ && rm -rf oxford_lunch_menus && git clone git@github.com:Calebagoha123/oxford_lunch_menus.git
+cd oxford_lunch_menus && cp /tmp/lunch.env .env && cp -r /tmp/lunch-data/* data/
+source ~/.nvm/nvm.sh && npm ci && node index.js --dry-run
+systemctl --user restart lunch-bot.service
+```
+
+Set `SENDERS=teams` + `TEAMS_WEBHOOK_URL` in `.env` first so the redeploy also moves delivery off the WhatsApp session.
+
+---
+
+## Handover: accounts & credentials
+
+Keep this current — an out-of-date list is how the bot dies quietly. Fill in every `???`.
+
+| Thing | Where | Held by | How to rotate |
+|---|---|---|---|
+| GitHub repo | `Calebagoha123/oxford_lunch_menus` | Caleb + collaborators | Settings → Collaborators (or Transfer ownership) |
+| Teams webhook | Power Automate flow on the channel | flow owner | Recreate via ⋯ → Workflows; add co-owners |
+| Gmail inbox | account receiving the menu emails | ??? | Ensure the cafés keep mailing this address |
+| Gmail App Password | `.env` → `GMAIL_APP_PASSWORD` | ??? | Google Account → Security → App Passwords |
+| Anthropic API key | `.env` → `ANTHROPIC_API_KEY` | ??? (who pays?) | console.anthropic.com → API keys |
+| Alert email | `.env` → `ALERT_EMAIL` | should be a shared alias | Point at a distribution list |
+| Host | Brains (`brains.oii.ox.ac.uk`), `systemd --user` service | dept-maintained | See [runbook](#operations--runbook) |
+| WhatsApp session *(deprecated)* | `auth_info_baileys/` on the host | a personal phone number | Rescan QR from the paired phone |
+
+**Before leaving:** fill in the `???`s above, add the permanent staff member as a repo collaborator and Power Automate co-owner, and confirm they can reach the host.
+
+---
 
 ## Tech stack
 
 | Package | Purpose |
 |---|---|
-| `@whiskeysockets/baileys` | WhatsApp Web API (no browser required) |
-| `node-cron` | Scheduling the 11 AM weekday send |
-| `axios` + `cheerio` | Scraping the Exeter College website |
-| `imapflow` + `mailparser` | Connecting to Gmail and parsing emails |
-| `@anthropic-ai/sdk` | Claude Vision API for menu image parsing |
-| `sharp` | Compressing large images before Vision API upload |
-| `nodemailer` | Sending alert emails on errors or logout |
-| `qrcode` | Generating the WhatsApp QR code as a PNG |
-
-## Tests
-
-```bash
-npm test
-```
-
-Tests live in `tests/` and use Jest with mocked external dependencies (IMAP, Axios, Anthropic SDK).
+| `axios` + `cheerio` | Scraping Exeter + Schwarzman sites, and the oxfevents API |
+| `imapflow` + `mailparser` | Gmail IMAP + email parsing |
+| `@anthropic-ai/sdk` | Claude Vision menu-image parsing |
+| `sharp` | Compressing images before Vision upload |
+| `node-cron` | The 11:00 weekday schedule |
+| `nodemailer` | Alert emails |
+| `@whiskeysockets/baileys` + `qrcode` | WhatsApp Web API (deprecated) |
