@@ -55,7 +55,7 @@ describe("fetchSchwarzman", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(freshCache());
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     expect(items[0]).toBe("*1 Base + 1 Protein + 2 Sides*");
   });
 
@@ -63,7 +63,7 @@ describe("fetchSchwarzman", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(freshCache());
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     expect(items).toContain("*Base*");
     expect(items).toContain("*Sides*");
     expect(items).toContain("*Protein*");
@@ -73,7 +73,7 @@ describe("fetchSchwarzman", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(freshCache());
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     const joined = items.join("\n");
     expect(joined).not.toContain("Toppings");
     expect(joined).not.toContain("Sauces & Pickles");
@@ -85,7 +85,7 @@ describe("fetchSchwarzman", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(freshCache());
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     expect(items).toContain("• Bulgur w/ Roasted Mediterranean Veg");
     expect(items).toContain("• Coconut Jasmin Rice");
     expect(items).toContain("• Polenta chips w/ Parmesan");
@@ -103,7 +103,7 @@ describe("fetchSchwarzman", () => {
   test("returns empty array when no cache file exists and check finds nothing", async () => {
     existsSpy.mockReturnValue(false);
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     expect(items).toEqual([]);
   });
 
@@ -111,15 +111,24 @@ describe("fetchSchwarzman", () => {
     existsSpy.mockReturnValueOnce(true).mockReturnValue(false);
     readSpy.mockReturnValue(staleCache());
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     expect(items).toEqual([]);
+  });
+
+  test("signals stale (no items) when a past-week cache persists — vacation", async () => {
+    existsSpy.mockReturnValue(true);
+    readSpy.mockReturnValue(staleCache());
+
+    const result = await fetchSchwarzman("Monday");
+    expect(result.items).toEqual([]);
+    expect(result.stale).toBe(true);
   });
 
   test("returns empty array on corrupted cache", async () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue("not valid json {{");
 
-    const items = await fetchSchwarzman("Monday");
+    const { items } = await fetchSchwarzman("Monday");
     expect(items).toEqual([]);
   });
 });

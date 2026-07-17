@@ -4,12 +4,16 @@ const axios = require("axios");
 jest.mock("axios");
 jest.mock("../blavatnik");
 jest.mock("../schwarzman");
+jest.mock("../whatson");
+jest.mock("../nearbyevents");
 jest.mock("../puns");
 
-const { parseExeterSection, fetchCohenQuad, getTodaysMenu } = require("../scraper");
+const { parseExeterSection, fetchCohenQuad, getTodaysMenu, buildMenu } = require("../scraper");
 const { fetchBlavatnik } = require("../blavatnik");
 const { fetchSchwarzman } = require("../schwarzman");
 const { getDailyPun } = require("../puns");
+const { fetchWhatsOn } = require("../whatson");
+const { fetchNearbyEvents } = require("../nearbyevents");
 
 // Realistic mock of the Exeter menu page structure
 const MOCK_EXETER_HTML = `
@@ -109,32 +113,35 @@ describe("parseExeterSection", () => {
 describe("fetchCohenQuad", () => {
   beforeEach(() => jest.clearAllMocks());
 
-  test("returns menu items for the given day", async () => {
+  test("returns the day's items, not stale, when the page has no old metadata", async () => {
     axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML });
-    const items = await fetchCohenQuad("Wednesday");
+    const { items, stale } = await fetchCohenQuad("Wednesday");
     expect(items).toContain("• Roast Chicken • Roast Potatoes • Gravy");
     expect(items.join("\n")).not.toMatch(/Monday|Tuesday|Thursday|Friday/);
+    expect(stale).toBe(false);
   });
 
-  test("uses parsed menu items even when WordPress modified metadata is stale", async () => {
+  test("still returns today's items but flags stale when the page metadata is old", async () => {
     axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML.replace("<html><body>", `<html><head>${STALE_MODIFIED_META}</head><body>`) });
-    const items = await fetchCohenQuad("Monday");
+    const { items, stale } = await fetchCohenQuad("Monday");
     expect(items).toContain("• Pasta Bolognese • Roasted Tomato Sauce • Parmesan");
-    expect(items).not.toContain("_Dakota menu not yet updated this week_");
+    expect(stale).toBe(true);
   });
 
-  test("shows stale update notice only when no Dakota items can be parsed", async () => {
+  test("drops heading-only output (no items) and flags stale — the vacation case", async () => {
     axios.get.mockResolvedValue({
-      data: `<html><head>${STALE_MODIFIED_META}</head><body><h2>Dakota Café (Cohen Quad)</h2><h2>Hall</h2></body></html>`,
+      data: `<html><head>${STALE_MODIFIED_META}</head><body><h2>Dakota Café (Cohen Quad)</h2><p>Soup of the Day</p><h2>Hall</h2></body></html>`,
     });
-    const items = await fetchCohenQuad("Monday");
-    expect(items).toEqual(["_Dakota menu not yet updated this week_"]);
+    const { items, stale } = await fetchCohenQuad("Monday");
+    expect(items).toEqual([]);
+    expect(stale).toBe(true);
   });
 
-  test("returns empty array when site has no matching section", async () => {
+  test("returns no items when the site has no matching section", async () => {
     axios.get.mockResolvedValue({ data: "<html><body><h2>Other</h2></body></html>" });
-    const items = await fetchCohenQuad("Monday");
+    const { items, stale } = await fetchCohenQuad("Monday");
     expect(items).toHaveLength(0);
+    expect(stale).toBe(false);
   });
 
   test("throws when axios fails", async () => {
@@ -149,6 +156,8 @@ describe("getTodaysMenu", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     getDailyPun.mockReturnValue(null);
+    fetchWhatsOn.mockResolvedValue([]);
+    fetchNearbyEvents.mockResolvedValue([]);
     axios.get.mockResolvedValue({ data: MOCK_EXETER_HTML });
   });
 
@@ -216,7 +225,7 @@ describe("getTodaysMenu", () => {
     expect(msg).toContain("No menu items found for today");
   });
 
-  test("continues if one source throws", async () => {
+  test("continues if one source throws, and says which one failed", async () => {
     fetchSchwarzman.mockRejectedValue(new Error("Network error"));
     fetchBlavatnik.mockResolvedValue(["• Tomato Soup — ~120kcal"]);
     jest.spyOn(Date.prototype, "getDay").mockReturnValue(2); // Tuesday
@@ -224,9 +233,65 @@ describe("getTodaysMenu", () => {
     const msg = await getTodaysMenu();
     expect(msg).toContain("Blavatnik Café");
     expect(msg).toContain("Dakota Café (Cohen Quad)");
-    expect(msg).not.toContain("Schwarzman Centre");
+    // A failed source must be reported, not silently omitted.
+    expect(msg).toContain("Couldn't reach: Schwarzman Centre");
 
     jest.restoreAllMocks();
+  });
+
+  test("reports the failure through buildMenu's errors array", async () => {
+    fetchSchwarzman.mockRejectedValue(new Error("Network error"));
+    fetchBlavatnik.mockResolvedValue([]);
+    jest.spyOn(Date.prototype, "getDay").mockReturnValue(2); // Tuesday
+
+    const menu = await buildMenu();
+    expect(menu.errors).toEqual([
+      { name: "Schwarzman Centre", message: "Network error" },
+    ]);
+    expect(menu.sections.map((s) => s.name)).toEqual(["Dakota Café (Cohen Quad)"]);
+
+    jest.restoreAllMocks();
+  });
+
+  test("groups Schwarzman and nearby events under buildMenu.events", async () => {
+    fetchWhatsOn.mockResolvedValue(["• *Sigur Rós: Ára* — Black Box · Music"]);
+    fetchNearbyEvents.mockResolvedValue([
+      { venue: "Blavatnik School of Government", items: ["• *Social Outcomes Conference*"] },
+    ]);
+    fetchBlavatnik.mockResolvedValue([]);
+    fetchSchwarzman.mockResolvedValue([]);
+
+    const menu = await buildMenu();
+    expect(menu.events).toEqual([
+      { venue: "Schwarzman Centre", items: ["• *Sigur Rós: Ára* — Black Box · Music"] },
+      { venue: "Blavatnik School of Government", items: ["• *Social Outcomes Conference*"] },
+    ]);
+  });
+
+  test("flags onVacation when every source is stale with nothing to show", async () => {
+    // Old page metadata, and no items parse out for the day.
+    axios.get.mockResolvedValue({
+      data: `<html><head>${STALE_MODIFIED_META}</head><body><h2>Dakota Café (Cohen Quad)</h2><p>Soup of the Day</p><h2>Hall</h2></body></html>`,
+    });
+    fetchBlavatnik.mockResolvedValue({ items: [], stale: true });
+    fetchSchwarzman.mockResolvedValue({ items: [], stale: true });
+
+    const menu = await buildMenu();
+    expect(menu.onVacation).toBe(true);
+    expect(menu.sections).toHaveLength(0);
+    expect(menu.stale).toEqual(
+      expect.arrayContaining(["Dakota Café (Cohen Quad)", "Blavatnik Café", "Schwarzman Centre"]),
+    );
+  });
+
+  test("does not burn a pun when there is no menu to attach it to", async () => {
+    axios.get.mockResolvedValue({ data: "<html><body></body></html>" });
+    fetchBlavatnik.mockResolvedValue([]);
+    fetchSchwarzman.mockResolvedValue([]);
+
+    const menu = await buildMenu();
+    expect(menu.pun).toBeNull();
+    expect(getDailyPun).not.toHaveBeenCalled();
   });
 
   test("adds the daily pun when one is available", async () => {
