@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { groupNearbyEvents } = require("../nearbyevents");
+const { groupNearbyEvents } = require("../src/events/nearby");
 
 const venues = JSON.parse(
   fs.readFileSync(path.join(__dirname, "fixtures", "oxfevents-venues.json"), "utf-8"),

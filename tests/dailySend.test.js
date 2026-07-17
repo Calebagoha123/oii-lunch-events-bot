@@ -2,7 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { createDailySendStore } = require("../dailySend");
+const { createDailySendStore } = require("../src/dailySend");
 
 function makeStore() {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "daily-send-"));
