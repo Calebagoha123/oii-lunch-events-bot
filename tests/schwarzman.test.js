@@ -6,8 +6,8 @@ jest.mock("imapflow");
 jest.mock("mailparser");
 jest.mock("@anthropic-ai/sdk");
 
-const { getWeekMonday } = require("../blavatnik");
-const { fetchSchwarzman } = require("../schwarzman");
+const { getWeekMonday } = require("../src/dates");
+const { fetchSchwarzman } = require("../src/menus/schwarzman");
 
 const MENU_PATH = path.join(__dirname, "../data/schwarzman-menu.json");
 

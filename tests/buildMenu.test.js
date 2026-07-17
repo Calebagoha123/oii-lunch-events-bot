@@ -2,18 +2,19 @@ const cheerio = require("cheerio");
 const axios = require("axios");
 
 jest.mock("axios");
-jest.mock("../blavatnik");
-jest.mock("../schwarzman");
-jest.mock("../whatson");
-jest.mock("../nearbyevents");
-jest.mock("../puns");
+jest.mock("../src/menus/blavatnik");
+jest.mock("../src/menus/schwarzman");
+jest.mock("../src/events/whatson");
+jest.mock("../src/events/nearby");
+jest.mock("../src/puns");
 
-const { parseExeterSection, fetchCohenQuad, getTodaysMenu, buildMenu } = require("../scraper");
-const { fetchBlavatnik } = require("../blavatnik");
-const { fetchSchwarzman } = require("../schwarzman");
-const { getDailyPun } = require("../puns");
-const { fetchWhatsOn } = require("../whatson");
-const { fetchNearbyEvents } = require("../nearbyevents");
+const { getTodaysMenu, buildMenu } = require("../src/buildMenu");
+const { parseExeterSection, fetchCohenQuad } = require("../src/menus/dakota");
+const { fetchBlavatnik } = require("../src/menus/blavatnik");
+const { fetchSchwarzman } = require("../src/menus/schwarzman");
+const { getDailyPun } = require("../src/puns");
+const { fetchWhatsOn } = require("../src/events/whatson");
+const { fetchNearbyEvents } = require("../src/events/nearby");
 
 // Realistic mock of the Exeter menu page structure
 const MOCK_EXETER_HTML = `

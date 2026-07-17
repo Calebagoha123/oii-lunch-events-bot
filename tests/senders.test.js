@@ -1,4 +1,4 @@
-const { resolveSenders } = require("../senders");
+const { resolveSenders } = require("../src/senders");
 
 describe("resolveSenders", () => {
   const ORIGINAL_ENV = process.env;

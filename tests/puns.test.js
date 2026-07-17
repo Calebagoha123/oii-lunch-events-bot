@@ -2,7 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-const { getDailyPun, loadPuns } = require("../puns");
+const { getDailyPun, loadPuns } = require("../src/puns");
 
 function makeFiles(puns) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "puns-"));

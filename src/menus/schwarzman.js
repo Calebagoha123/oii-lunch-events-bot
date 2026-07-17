@@ -4,9 +4,10 @@ const Anthropic = require("@anthropic-ai/sdk");
 const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
-const { getWeekMonday } = require("./blavatnik");
+const { getWeekMonday } = require("../dates");
+const { DATA_DIR } = require("../paths");
 
-const MENU_PATH = path.join(__dirname, "data", "schwarzman-menu.json");
+const MENU_PATH = path.join(DATA_DIR, "schwarzman-menu.json");
 
 // Categories to omit from the formatted output (minor items, keeps message concise)
 const SKIP_CATEGORIES = ["toppings", "sauces & pickles"];

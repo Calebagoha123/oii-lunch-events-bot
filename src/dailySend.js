@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { DATA_DIR } = require("./paths");
 
 function createDailySendStore(dataDir) {
   const legacyLastSentPath = path.join(dataDir, "last-sent.json");
@@ -95,6 +96,6 @@ function createDailySendStore(dataDir) {
 }
 
 module.exports = {
-  ...createDailySendStore(path.join(__dirname, "data")),
+  ...createDailySendStore(DATA_DIR),
   createDailySendStore,
 };

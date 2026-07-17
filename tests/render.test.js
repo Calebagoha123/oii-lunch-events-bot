@@ -1,5 +1,5 @@
-const { renderWhatsApp } = require("../render/whatsapp");
-const { renderTeams, whatsappMarkupToMarkdown } = require("../render/teams");
+const { renderWhatsApp } = require("../src/render/whatsapp");
+const { renderTeams, whatsappMarkupToMarkdown } = require("../src/render/teams");
 
 const MENU = {
   date: "Friday, 17 Jul 2026",

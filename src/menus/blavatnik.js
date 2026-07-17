@@ -4,21 +4,11 @@ const Anthropic = require("@anthropic-ai/sdk");
 const sharp = require("sharp");
 const fs = require("fs");
 const path = require("path");
+const { getWeekMonday } = require("../dates");
+const { DATA_DIR } = require("../paths");
 
-const MENU_PATH = path.join(__dirname, "data", "blavatnik-menu.json");
+const MENU_PATH = path.join(DATA_DIR, "blavatnik-menu.json");
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-
-/**
- * Returns the Monday of the current week (at midnight UTC).
- */
-function getWeekMonday(date = new Date()) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
 
 /**
  * Connect to Gmail via IMAP, find the latest Blavatnik menu email,
@@ -299,4 +289,4 @@ async function fetchBlavatnik(today) {
   }
 }
 
-module.exports = { fetchBlavatnik, checkForNewMenu, getWeekMonday };
+module.exports = { fetchBlavatnik, checkForNewMenu };

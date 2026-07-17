@@ -1,6 +1,6 @@
 const fs = require("fs");
 const path = require("path");
-const { parseWhatsOn, formatEvents } = require("../whatson");
+const { parseWhatsOn, formatEvents } = require("../src/events/whatson");
 
 const HTML = fs.readFileSync(
   path.join(__dirname, "fixtures", "whats-on.html"),
