@@ -4,3 +4,7 @@ auth_info_baileys/
 data/
 .DS_Store
 *.log
+
+# OS / editor cruft
+.Rhistory
+.Rproj.user/
