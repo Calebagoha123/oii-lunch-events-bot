@@ -6,8 +6,11 @@ services:
     environment:
       TZ: Europe/London
     volumes:
-      - ./auth_info_baileys:/app/auth_info_baileys
       - ./data:/app/data
+      # WhatsApp only (deprecated): persists the paired session. Remove this
+      # mount once SENDERS no longer includes "whatsapp".
+      - ./auth_info_baileys:/app/auth_info_baileys
     restart: unless-stopped
+    # stdin_open/tty are only needed to scan the WhatsApp QR interactively.
     stdin_open: true
     tty: true
