@@ -1,10 +1,35 @@
-# WhatsApp Lunch Menu Bot
+# Oxford Lunch Menu Bot
 
-A Node.js bot that scrapes and compiles daily lunch menus from cafés around Oxford's Schwarzman Centre and sends them to a WhatsApp group at 11:00 AM on weekdays.
+A Node.js bot that scrapes and compiles daily lunch menus from cafés around Oxford's Schwarzman Centre and posts them to a **Microsoft Teams** channel at 11:00 AM on weekdays. It can also post to WhatsApp (deprecated — see below).
+
+> **New here?** Read `CONTRIBUTING.md` to get running locally in two minutes,
+> `RUNBOOK.md` when something breaks, and `HANDOVER.md` for the accounts and
+> credentials behind it.
+
+## Senders
+
+The `SENDERS` env var (comma-separated) picks the channel(s):
+
+- `SENDERS=teams` *(default)* — post to Teams via a Power Automate workflow webhook.
+- `SENDERS=teams,whatsapp` — both, for a migration period.
+- `SENDERS=whatsapp` — WhatsApp only (**deprecated**).
+
+### Deprecation: WhatsApp
+
+The WhatsApp backend is kept only to bridge the move to Teams. It carries costs
+Teams doesn't: the session is bound to one **personal phone number**, needs a
+**physical QR rescan** from that handset to re-authenticate, and can't run on
+cloud IPs (WhatsApp blocks them). **Once the Teams channel has traction, delete
+`senders/whatsapp.js`, the `@whiskeysockets/baileys` + `qrcode` dependencies,
+and the `auth_info_baileys/` mount.** Nothing else depends on it. Note also that
+`!menu` / `!refresh` commands work on WhatsApp only — on Teams the equivalents
+are `node index.js --send-now` and `node index.js --refresh` (a Teams workflow
+webhook is one-way, so in-channel commands aren't possible without a full bot
+registration).
 
 ## What it does
 
-Every weekday at 11 AM the bot sends a single WhatsApp message to a configured group with the day's lunch options from:
+Every weekday at 11 AM the bot posts a single message with the day's lunch options from:
 
 - **Dakota Café (Cohen Quad)** — scraped from the Exeter College website
 - **Blavatnik Café** — parsed from a weekly menu image sent by email
@@ -30,11 +55,14 @@ data/             Weekly JSON caches for Blavatnik and Schwarzman menus
 4. Results are saved to `data/blavatnik-menu.json` and `data/schwarzman-menu.json`
 5. All sources are combined into one message and sent to the WhatsApp group
 
-### Commands
+### Commands & manual triggers
 
-Users in the group can type:
-- `!menu` — fetch and send today's menu on demand
-- `!refresh` — force re-fetch from Gmail (useful if a new menu email arrived mid-week)
+On WhatsApp (deprecated), users in the group can type `!menu` and `!refresh`.
+
+Everywhere, maintainers have CLI equivalents:
+- `node index.js --dry-run` — render today's menu to stdout, no sends, no credentials
+- `node index.js --send-now` — build and post today's menu, then exit
+- `node index.js --refresh` — force a re-read from Gmail (combine with `--send-now` to also post)
 
 ## Setup
 
@@ -48,65 +76,53 @@ Users in the group can type:
 
 ### Environment variables
 
-Copy `.env.example` to `.env` and fill in:
+Copy `.env.example` to `.env` and fill in the values documented there. For the
+default Teams setup you need `TEAMS_WEBHOOK_URL`, the three Gmail/Anthropic keys
+for the menu sources, and `ALERT_EMAIL`. `GROUP_NAME` is only needed if you
+enable the deprecated WhatsApp sender.
 
-```
-GROUP_NAME=          # Exact name of the WhatsApp group to send menus to
-GMAIL_USER=          # Gmail address that receives the menu emails
-GMAIL_APP_PASSWORD=  # Gmail App Password (not your regular password)
-ANTHROPIC_API_KEY=   # Anthropic API key for Claude Vision
-ALERT_EMAIL=         # Where to send error alerts (e.g. logout notifications)
-```
+### First run (Teams, the default)
 
-### First run
+Teams needs no QR scan — just a valid `TEAMS_WEBHOOK_URL` in `.env`.
 
 ```bash
-docker compose up --build
+docker compose up -d --build
+docker compose logs -f          # to watch
 ```
 
-Run it in the foreground the first time. A QR code prints to the logs — scan it with WhatsApp on your phone. The session is persisted in `./auth_info_baileys/` (bind-mounted from the host) and reused on subsequent starts.
-
-Once authenticated, Ctrl-C and start it detached:
-
-```bash
-docker compose up -d
-docker compose logs -f   # to watch
-```
-
-### Sending the menu immediately (for testing)
+Verify it posts:
 
 ```bash
 docker compose run --rm bot node index.js --send-now
 ```
 
-This connects, sends today's menu to the group, and exits.
+### First run (WhatsApp, deprecated)
+
+Only if `SENDERS` includes `whatsapp`: run in the foreground once so the QR code
+prints to the logs, scan it from the paired phone, then Ctrl-C and start
+detached. The session persists in `./auth_info_baileys/`.
 
 ### Running tests
 
 ```bash
-npm install        # only needed if running tests outside Docker
+npm ci        # exact locked deps (incl. the correct sharp binary)
 npm test
 ```
 
 ## Deployment
 
-The container is designed to run on a laptop or a small always-on machine on a residential/office network. **Avoid cloud providers** — WhatsApp's infrastructure blocks connections from common cloud IP ranges (AWS, GCP, etc.) and the bot will be repeatedly disconnected.
+Runs in Docker with `restart: unless-stopped`, which handles crashes and host
+reboots as long as Docker is running. Currently hosted on **Brains** (see
+`HANDOVER.md`).
 
-`restart: unless-stopped` in `docker-compose.yml` handles crashes and host reboots automatically as long as Docker is running.
+- **Teams** has no hosting restriction — it's an outbound HTTPS POST, so cloud
+  hosts are fine.
+- **WhatsApp** (deprecated) does not work on cloud IP ranges (AWS/GCP/etc. are
+  blocked by WhatsApp) and must run on a residential/office network.
 
-### Keeping the session alive
-
-WhatsApp occasionally requires re-authentication. The bot sends an email to `ALERT_EMAIL` if it gets logged out and exits. To re-authenticate:
-
-```bash
-docker compose up      # foreground, scan the new QR
-# Ctrl-C once authenticated
-docker compose up -d   # back to detached
-```
-
-### A note on running from a laptop
-
-The bot fires at 11:00 AM weekdays. If your laptop is asleep, closed, or offline at that time, the menu won't go out. For reliable daily delivery, run the container on a machine that stays awake during weekday mornings (a home Mac mini, a desktop, a Pi, etc.).
+The bot fires at 11:00 AM weekdays. If the host is asleep or offline at that
+time the menu won't go out; a catch-up timer sends it as soon as the host is
+back online the same weekday. Run it on an always-on machine.
 
 ## Adding a new café
 
@@ -120,7 +136,7 @@ Each menu source is an entry in the `MENU_SOURCES` array in `scraper.js`:
 }
 ```
 
-The `fetch` function receives the current day name (e.g. `"Wednesday"`) and should return an array of formatted strings. Return an empty array to omit the café from that day's message.
+The `fetch` function receives the current day name (e.g. `"Wednesday"`) and returns either an array of formatted strings, or `{ items: string[], stale: boolean }`. Return an empty `items` to omit the café that day; set `stale: true` when you can tell the source hasn't been refreshed this week (e.g. during vacation) so it feeds the "not updated" label and vacation detection. See `CONTRIBUTING.md` for the fuller contract.
 
 For email-based menus, follow the pattern in `blavatnik.js` or `schwarzman.js`: connect via IMAP, find the relevant email by subject, extract the image attachment, send to Claude Vision with a structured prompt, and cache the result by week.
 

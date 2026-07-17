@@ -2,6 +2,8 @@ const axios = require("axios");
 const cheerio = require("cheerio");
 const { fetchBlavatnik } = require("./blavatnik");
 const { fetchSchwarzman } = require("./schwarzman");
+const { fetchWhatsOn } = require("./whatson");
+const { fetchNearbyEvents } = require("./nearbyevents");
 const { getDailyPun } = require("./puns");
 
 const DAYS = [
@@ -48,42 +50,82 @@ const MENU_SOURCES = [
 ];
 
 /**
- * Fetch and compile all menus into a single WhatsApp message.
+ * Fetch every menu source and return the day's menu as structured data.
+ *
+ * Presentation lives in the renderers under `render/` — this function decides
+ * *what* is in the message, never how it looks. `items` are still
+ * WhatsApp-flavoured strings because the fetchers themselves emit markup; the
+ * renderers translate as needed.
+ *
+ * @returns {Promise<{date: string, day: string, pun: string|null,
+ *   events: string[],
+ *   sections: Array<{name: string, info: string, items: string[]}>,
+ *   errors: Array<{name: string, message: string}>}>}
  */
-async function getTodaysMenu() {
-  const today = DAYS[new Date().getDay()];
-  const dateStr = new Date().toLocaleDateString("en-GB", {
+async function buildMenu(now = new Date()) {
+  const today = DAYS[now.getDay()];
+  const date = now.toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
     month: "short",
     year: "numeric",
   });
 
-  let msg = `🍽 *Lunch Menu*\n📅 ${dateStr}\n`;
+  // What's on around you today — a banner above the menu, grouped by building.
+  // Schwarzman comes from its own site (authoritative); Blavatnik and the Andrew
+  // Wiles building come from the oxfevents aggregator. Both fail soft to [].
+  const [schwarzmanLines, nearbyGroups] = await Promise.all([
+    fetchWhatsOn(now),
+    fetchNearbyEvents(now),
+  ]);
+  const events = [];
+  if (schwarzmanLines.length) {
+    events.push({ venue: "Schwarzman Centre", items: schwarzmanLines });
+  }
+  events.push(...nearbyGroups);
 
-  let anyItems = false;
   const sections = [];
+  const errors = [];
+  const stale = [];
+
   for (const source of MENU_SOURCES) {
     try {
-      const items = await source.fetch(today);
+      // Fetchers return either string[] or { items, stale } — normalise both.
+      const result = await source.fetch(today);
+      const items = Array.isArray(result) ? result : result.items || [];
+      const isStale = Array.isArray(result) ? false : Boolean(result.stale);
+
+      if (isStale) stale.push(source.name);
       if (items.length) {
-        anyItems = true;
-        sections.push(`\n*--- ${source.name} ---*\n${source.info}\n${items.join("\n")}\n`);
+        sections.push({ name: source.name, info: source.info, items, stale: isStale });
       }
     } catch (err) {
       console.error(`Error fetching ${source.name}:`, err.message);
+      errors.push({ name: source.name, message: err.message });
     }
   }
 
-  if (!anyItems) {
-    msg += "\nNo menu items found for today.";
-  } else {
-    const pun = getDailyPun();
-    if (pun) msg += `💬 _${pun}_\n`;
-    msg += sections.join("");
-  }
+  // getDailyPun() advances persisted rotation state, so only spend a pun on a
+  // message that actually has a menu in it.
+  const pun = sections.length ? getDailyPun() : null;
 
-  return msg;
+  // "Vacation" is a high-confidence claim: EVERY source reported stale and none
+  // returned items. If only some sources are stale and others are merely empty
+  // or unconfigured (e.g. Gmail creds missing), we don't know it's vacation — we
+  // just have no menu, which renders as the plain empty state instead.
+  const onVacation =
+    !sections.length && !errors.length && stale.length === MENU_SOURCES.length;
+
+  return { date, day: today, pun, events, sections, errors, stale, onVacation };
+}
+
+/**
+ * Compile all menus into a single WhatsApp message.
+ * @deprecated Prefer buildMenu() plus an explicit renderer.
+ */
+async function getTodaysMenu() {
+  const { renderWhatsApp } = require("./render/whatsapp");
+  return renderWhatsApp(await buildMenu());
 }
 
 // --- Cohen Quad (Exeter College) ---
@@ -104,19 +146,24 @@ async function fetchCohenQuad(today) {
   const { data: html } = await axios.get(EXETER_MENU_URL);
   const $ = cheerio.load(html);
   const lines = parseExeterSection($, "Dakota Café (Cohen Quad)", today);
-  if (lines.length) return lines;
 
-  // Check if the page was updated this week
+  // A stale page still yields *heading* lines ("Soup of the Day") with no items
+  // beneath them for today, so line count alone can't tell fresh from stale.
+  // Only bullet lines ("• …") are actual food; decide freshness from the page's
+  // own modified date, always.
+  const hasItems = lines.some((l) => l.trimStart().startsWith("•"));
+
   const modified = $('meta[property="article:modified_time"]').attr("content");
-  if (modified) {
-    const modifiedDate = new Date(modified);
-    if (modifiedDate < getWeekMonday()) {
-      console.log(`Dakota: page last updated ${modifiedDate.toDateString()}, menu not yet updated this week.`);
-      return ["_Dakota menu not yet updated this week_"];
-    }
+  const stale = modified ? new Date(modified) < getWeekMonday() : false;
+
+  if (stale) {
+    console.log(`Dakota: page last updated ${new Date(modified).toDateString()}, not refreshed this week.`);
+    // During vacation the page lists only a few weekdays; today may have none.
+    // Surface whatever real items exist, flagged stale — never bare headings.
+    return { items: hasItems ? lines : [], stale: true };
   }
 
-  return lines;
+  return { items: hasItems ? lines : [], stale: false };
 }
 
 /**
@@ -196,4 +243,4 @@ function parseExeterSection($, sectionName, today) {
   return lines;
 }
 
-module.exports = { getTodaysMenu, fetchCohenQuad, parseExeterSection };
+module.exports = { buildMenu, getTodaysMenu, fetchCohenQuad, parseExeterSection };

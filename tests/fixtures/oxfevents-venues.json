@@ -1,0 +1,32 @@
+{
+  "venues": [
+    {
+      "id": "bbf3d2fc-2a30-4451-b9a4-b093b9acf48a",
+      "name": "Andrew Wiles Building"
+    },
+    {
+      "id": "7330846f-f9f9-4fb3-bf62-81bfacd5c08d",
+      "name": "Andrew Wiles Building (Mathematical Institute)"
+    },
+    {
+      "id": "4b7c4c36-971a-49a4-bae0-c3b822553208",
+      "name": "Blavatnik School of Government"
+    },
+    {
+      "id": "384394a7-b9da-4428-96e0-848877958e3d",
+      "name": "Mathematical Institute"
+    },
+    {
+      "id": "1240a982-0933-4165-a11d-f80f324c761b",
+      "name": "Mathematical Institute, Andrew Wiles Building"
+    },
+    {
+      "id": "c5372dda-551d-4dd4-988f-6252f747a94b",
+      "name": "Tun Razak Lecture Theatre, Blavatnik School of Government"
+    },
+    {
+      "id": "decoy-1",
+      "name": "Some Other Hall"
+    }
+  ]
+}

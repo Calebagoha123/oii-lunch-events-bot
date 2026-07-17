@@ -250,7 +250,7 @@ async function fetchSchwarzman(_today) {
     updateLastChecked(MENU_PATH);
   }
 
-  if (!fs.existsSync(MENU_PATH)) return [];
+  if (!fs.existsSync(MENU_PATH)) return { items: [], stale: false };
 
   try {
     const cached = JSON.parse(fs.readFileSync(MENU_PATH, "utf-8"));
@@ -258,11 +258,12 @@ async function fetchSchwarzman(_today) {
       ? new Date(cached.weekCommencing).toDateString()
       : null;
     const stale = cachedMonday !== getWeekMonday().toDateString();
-    const lines = formatMenu(cached.menu);
-    if (stale) return ["_Schwarzman menu not available yet this week_"];
-    return lines;
+    // When stale (e.g. during vacation), don't show a past week's menu at all —
+    // signal staleness and let the caller decide how to present it.
+    if (stale) return { items: [], stale: true };
+    return { items: formatMenu(cached.menu), stale: false };
   } catch {
-    return [];
+    return { items: [], stale: false };
   }
 }
 

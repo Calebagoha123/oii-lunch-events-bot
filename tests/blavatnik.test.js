@@ -46,7 +46,7 @@ describe("fetchBlavatnik", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(freshCache());
 
-    const items = await fetchBlavatnik("Monday");
+    const { items } = await fetchBlavatnik("Monday");
     expect(items).toEqual([
       "1. Grilled Chicken",
       "2. Tomato Soup (V)",
@@ -62,7 +62,7 @@ describe("fetchBlavatnik", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(cacheWithGap);
 
-    const items = await fetchBlavatnik("Monday");
+    const { items } = await fetchBlavatnik("Monday");
     expect(items[0]).toBe("_Next available: Tuesday_");
     expect(items[1]).toBe("1. Lentil Dhal");
   });
@@ -71,7 +71,7 @@ describe("fetchBlavatnik", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(freshCache());
 
-    const items = await fetchBlavatnik("Wednesday");
+    const { items } = await fetchBlavatnik("Wednesday");
     expect(items[0]).toMatch(/^1\./);
     expect(items[1]).toMatch(/^2\./);
     expect(items[2]).toMatch(/^3\./);
@@ -85,14 +85,14 @@ describe("fetchBlavatnik", () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue(emptyCache);
 
-    const items = await fetchBlavatnik("Monday");
+    const { items } = await fetchBlavatnik("Monday");
     expect(items).toEqual([]);
   });
 
   test("returns empty array when no cache file exists and checkForNewMenu finds nothing", async () => {
     existsSpy.mockReturnValue(false);
 
-    const items = await fetchBlavatnik("Monday");
+    const { items } = await fetchBlavatnik("Monday");
     expect(items).toEqual([]);
   });
 
@@ -101,16 +101,27 @@ describe("fetchBlavatnik", () => {
     existsSpy.mockReturnValueOnce(true).mockReturnValue(false);
     readSpy.mockReturnValue(staleCache());
 
-    const items = await fetchBlavatnik("Monday");
-    // After stale cache triggers refresh and no new cache is written, returns []
-    expect(items).toEqual([]);
+    const result = await fetchBlavatnik("Monday");
+    // Cache file is gone after the refresh, so there's nothing to call stale.
+    expect(result.items).toEqual([]);
+    expect(result.stale).toBe(false);
+  });
+
+  test("signals stale (no items) when a past-week cache persists — vacation", async () => {
+    // Cache file stays on disk across the refresh (no new email arrived).
+    existsSpy.mockReturnValue(true);
+    readSpy.mockReturnValue(staleCache());
+
+    const result = await fetchBlavatnik("Monday");
+    expect(result.items).toEqual([]);
+    expect(result.stale).toBe(true);
   });
 
   test("returns empty array on corrupted cache", async () => {
     existsSpy.mockReturnValue(true);
     readSpy.mockReturnValue("not valid json {{");
 
-    const items = await fetchBlavatnik("Monday");
+    const { items } = await fetchBlavatnik("Monday");
     expect(items).toEqual([]);
   });
 });

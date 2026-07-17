@@ -1,116 +1,78 @@
 require("dotenv").config();
-const QRCode = require("qrcode");
-const nodemailer = require("nodemailer");
 const cron = require("node-cron");
-const { getTodaysMenu } = require("./scraper");
+const { buildMenu } = require("./scraper");
+const { renderWhatsApp } = require("./render/whatsapp");
+const { resolveSenders } = require("./senders");
+const { sendAlert } = require("./alerts");
 const { checkForNewMenu: refreshBlavatnik } = require("./blavatnik");
 const { checkForNewSchwarzmanMenu: refreshSchwarzman } = require("./schwarzman");
-const { alreadyClaimedToday, claimDailySend, completeDailySend } = require("./dailySend");
+const {
+  alreadyClaimedToday,
+  claimDailySend,
+  completeDailySend,
+} = require("./dailySend");
 
-const GROUP_NAME = process.env.GROUP_NAME;
-if (!GROUP_NAME) {
-  console.error("ERROR: GROUP_NAME not set in .env");
-  process.exit(1);
-}
-
+const DRY_RUN = process.argv.includes("--dry-run");
 const SEND_NOW = process.argv.includes("--send-now");
+const REFRESH = process.argv.includes("--refresh");
 
-let sock;
-let groupJid = null;
+let senders = [];
 let cronStarted = false;
 let catchUpTimerStarted = false;
-let reconnectTimer = null;
-let connectInProgress = false;
-const recentMessages = new Map();
-const MAX_RECENT_MESSAGES = 200;
 
-function rememberMessage(msg) {
-  const id = msg?.key?.id;
-  if (!id || !msg.message) return;
+async function refreshEmailMenus() {
+  await Promise.all([refreshBlavatnik(), refreshSchwarzman()]);
+}
 
-  recentMessages.set(id, msg.message);
-  if (recentMessages.size > MAX_RECENT_MESSAGES) {
-    const oldestId = recentMessages.keys().next().value;
-    recentMessages.delete(oldestId);
+/**
+ * Builds today's menu and hands it to every active sender. A sender failing
+ * doesn't stop the others; the menu going out somewhere beats nowhere.
+ */
+async function sendMenu() {
+  const menu = await buildMenu();
+
+  if (menu.errors.length) {
+    await sendAlert(
+      "Menu sources degraded",
+      `Today's menu was built with ${menu.errors.length} source(s) failing:\n\n` +
+        menu.errors.map((e) => `- ${e.name}: ${e.message}`).join("\n") +
+        `\n\nThe message was still sent, minus those sources.\nSee RUNBOOK.md.`,
+    );
   }
-}
 
-// Sending a message makes Baileys mark this device as "available" (online),
-// which suppresses push notifications on the phone. Re-assert "unavailable"
-// so notifications keep flowing to the phone.
-async function markUnavailable() {
-  try {
-    await sock?.sendPresenceUpdate("unavailable");
-  } catch (err) {
-    console.error("Failed to mark presence unavailable:", err.message);
+  const results = await Promise.allSettled(
+    senders.map(async (sender) => {
+      await sender.send(menu);
+      console.log(`Menu sent via ${sender.name}.`);
+    }),
+  );
+
+  const failed = results
+    .map((r, i) => ({ r, sender: senders[i] }))
+    .filter(({ r }) => r.status === "rejected");
+
+  for (const { r, sender } of failed) {
+    console.error(`Error sending via ${sender.name}:`, r.reason?.message);
   }
-}
 
-async function sendMessageAndRemember(jid, content, options) {
-  const sentMessage = await sock.sendMessage(jid, content, options);
-  rememberMessage(sentMessage);
-  await markUnavailable();
-  return sentMessage;
-}
-
-async function sendAlert(subject, body) {
-  const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
-  const to = process.env.ALERT_EMAIL;
-  if (!user || !pass || !to) return;
-  try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user, pass },
-    });
-    await transporter.sendMail({
-      from: user,
-      to,
-      subject: `[lunch-bot] ${subject}`,
-      text: body,
-    });
-    console.log("Alert email sent.");
-  } catch (err) {
-    console.error("Failed to send alert email:", err.message);
-  }
-}
-
-async function cacheGroupJid() {
-  try {
-    const groups = await sock.groupFetchAllParticipating();
-    const group = Object.values(groups).find((g) => g.subject === GROUP_NAME);
-    if (group) {
-      groupJid = group.id;
-      console.log(`Group "${GROUP_NAME}" found.`);
-    } else {
-      console.error(`Group "${GROUP_NAME}" not found.`);
-    }
-  } catch (err) {
-    console.error("Error fetching groups:", err.message);
-  }
-}
-
-async function sendMenuToGroup() {
-  try {
-    if (!groupJid) await cacheGroupJid();
-    if (!groupJid) {
-      const msg = `Group "${GROUP_NAME}" not found.`;
-      console.error(msg);
-      await sendAlert("Group not found", msg);
-      return false;
-    }
-    const menu = await getTodaysMenu();
-    await sendMessageAndRemember(groupJid, { text: menu });
-    console.log(`Menu sent to "${GROUP_NAME}".`);
-    return true;
-  } catch (err) {
-    console.error("Error sending menu:", err.message);
+  if (failed.length === senders.length) {
     await sendAlert(
       "Failed to send menu",
-      `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nCheck logs: docker compose logs --tail=200 bot`
+      `The lunch bot could not deliver today's menu via any sender.\n\n` +
+        failed.map(({ sender, r }) => `- ${sender.name}: ${r.reason?.message}`).join("\n") +
+        `\n\nSee RUNBOOK.md.`,
     );
     return false;
   }
+
+  if (failed.length) {
+    await sendAlert(
+      "Some senders failed",
+      failed.map(({ sender, r }) => `- ${sender.name}: ${r.reason?.message}`).join("\n"),
+    );
+  }
+
+  return true;
 }
 
 async function sendDailyMenu(reason) {
@@ -120,11 +82,20 @@ async function sendDailyMenu(reason) {
     return false;
   }
 
-  const sent = await sendMenuToGroup();
+  let sent = false;
+  try {
+    sent = await sendMenu();
+  } catch (err) {
+    console.error("Error sending menu:", err.message);
+    await sendAlert(
+      "Failed to send menu",
+      `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nSee RUNBOOK.md.`,
+    );
+  }
   completeDailySend(
     claim,
     sent ? "sent" : "failed",
-    sent ? undefined : "sendMenuToGroup returned false",
+    sent ? undefined : "sendMenu returned false",
   );
   return sent;
 }
@@ -132,11 +103,9 @@ async function sendDailyMenu(reason) {
 async function catchUpIfMissed() {
   const now = new Date();
   const day = now.getDay(); // 0=Sun, 6=Sat
-  const hour = now.getHours();
   const isWeekday = day >= 1 && day <= 5;
-  const isPast11 = hour >= 11;
 
-  if (isWeekday && isPast11 && !alreadyClaimedToday()) {
+  if (isWeekday && now.getHours() >= 11 && !alreadyClaimedToday()) {
     console.log("Catch-up: missed 11 AM send, sending now...");
     await sendDailyMenu("catch-up");
   }
@@ -156,162 +125,89 @@ function startCatchUpTimer() {
   if (catchUpTimerStarted) return;
   catchUpTimerStarted = true;
   setInterval(() => {
-    catchUpIfMissed().catch((err) => {
-      console.error("Catch-up check failed:", err.message);
-    });
+    catchUpIfMissed().catch((err) =>
+      console.error("Catch-up check failed:", err.message),
+    );
   }, 60 * 1000);
   console.log("Catch-up checker scheduled: every 60 seconds");
 }
 
-function scheduleReconnect(statusCode) {
-  if (reconnectTimer) return;
+/**
+ * Handles !menu / !refresh. WhatsApp-only: a Teams workflow webhook is one-way,
+ * so on Teams these are replaced by `--send-now` / `--refresh` (see RUNBOOK.md).
+ */
+async function handleCommand(command, reply) {
+  if (command === "!refresh") {
+    console.log("!refresh requested");
+    await reply("Refreshing menus from Gmail...");
+    try {
+      await refreshEmailMenus();
+      await reply("Done! Menus refreshed. Send !menu to see the latest.");
+    } catch (err) {
+      console.error("Error refreshing menus:", err.message);
+      await reply("Something went wrong refreshing the menus.");
+    }
+    return;
+  }
 
-  console.log(`Connection closed (code ${statusCode}), reconnecting...`);
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connectToWhatsApp();
-  }, 5000);
-}
-
-async function connectToWhatsApp() {
-  if (connectInProgress) return;
-  connectInProgress = true;
+  console.log("!menu requested");
   try {
-    await createWhatsAppSocket();
+    await reply(renderWhatsApp(await buildMenu()));
   } catch (err) {
-    console.error("Fatal startup error:", err.message);
-    await sendAlert(
-      "Startup failed",
-      `The lunch bot failed while starting WhatsApp.\n\nError: ${err.message}`
-    );
-    scheduleReconnect("startup-error");
-  } finally {
-    connectInProgress = false;
+    console.error("Error fetching menu:", err.message);
+    await reply("Sorry, I couldn't fetch today's menu. Try again later.");
   }
 }
 
-async function createWhatsAppSocket() {
-  const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason,
-    fetchLatestBaileysVersion,
-  } = await import("@whiskeysockets/baileys");
-
-  const pino = (await import("pino")).default;
-
-  const { state, saveCreds } = await useMultiFileAuthState("auth_info_baileys");
-  const { version } = await fetchLatestBaileysVersion();
-
-  const activeSock = makeWASocket({
-    version,
-    auth: state,
-    logger: pino({ level: "silent" }),
-    markOnlineOnConnect: false,
-    getMessage: async (key) => recentMessages.get(key.id),
-  });
-  sock = activeSock;
-
-  activeSock.ev.on("creds.update", saveCreds);
-
-  activeSock.ev.on("connection.update", async (update) => {
-    if (activeSock !== sock) return;
-
-    const { connection, lastDisconnect, qr } = update;
-
-    if (qr) {
-      console.log("\nScan this QR with WhatsApp on your phone:\n");
-      console.log(await QRCode.toString(qr, { type: "terminal", small: true }));
-    }
-
-    if (connection === "close") {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-      const loggedOut = statusCode === DisconnectReason.loggedOut;
-
-      if (loggedOut) {
-        console.error("Logged out from WhatsApp.");
-        await sendAlert(
-          "Logged out",
-          "The lunch bot was logged out of WhatsApp. Please re-authenticate by restarting and scanning the QR code."
-        );
-        process.exit(1);
-      } else {
-        scheduleReconnect(statusCode);
-      }
-    }
-
-    if (connection === "open") {
-      console.log("WhatsApp connected!");
-      await markUnavailable();
-      await cacheGroupJid();
-
-      if (SEND_NOW) {
-        await sendMenuToGroup();
-        process.exit(0);
-      }
-
-      startCronJob();
-      startCatchUpTimer();
-      await catchUpIfMissed();
-    }
-  });
-
-  activeSock.ev.on("messages.upsert", async ({ messages, type }) => {
-    if (activeSock !== sock) return;
-    if (type !== "notify") return;
-
-    for (const msg of messages) {
-      if (msg.key.fromMe) continue;
-
-      const body =
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        "";
-
-      if (body !== "!menu" && body !== "!refresh") continue;
-
-      const chatJid = msg.key.remoteJid;
-      if (!chatJid.endsWith("@g.us")) continue;
-
-      if (groupJid && chatJid !== groupJid) continue;
-      if (!groupJid) {
-        const meta = await sock.groupMetadata(chatJid);
-        if (meta.subject !== GROUP_NAME) continue;
-        groupJid = chatJid;
-      }
-
-      if (body === "!refresh") {
-        console.log(`!refresh requested in "${GROUP_NAME}"`);
-        await sendMessageAndRemember(chatJid, { text: "Refreshing menus from Gmail..." });
-        try {
-          await Promise.all([refreshBlavatnik(), refreshSchwarzman()]);
-          await sendMessageAndRemember(chatJid, {
-            text: "Done! Menus refreshed. Send !menu to see the latest.",
-          });
-        } catch (err) {
-          console.error("Error refreshing menus:", err.message);
-          await sendMessageAndRemember(chatJid, {
-            text: "Something went wrong refreshing the menus.",
-          });
-        }
-        continue;
-      }
-
-      console.log(`!menu requested in "${GROUP_NAME}"`);
-      try {
-        const menu = await getTodaysMenu();
-        await sendMessageAndRemember(chatJid, { text: menu });
-      } catch (err) {
-        console.error("Error fetching menu:", err.message);
-        await sendMessageAndRemember(chatJid, {
-          text: "Sorry, I couldn't fetch today's menu. Try again later.",
-        });
-      }
-    }
-  });
+/**
+ * Renders today's menu to stdout. No sends, no credentials, no WhatsApp
+ * session — this is the contributor's inner loop.
+ */
+async function dryRun() {
+  const menu = await buildMenu();
+  console.log("─".repeat(60));
+  console.log(renderWhatsApp(menu));
+  console.log("─".repeat(60));
+  console.log(`\nSections: ${menu.sections.length}  Errors: ${menu.errors.length}`);
+  for (const err of menu.errors) console.log(`  ⚠️  ${err.name}: ${err.message}`);
+  console.log("\nTeams Adaptive Card payload:");
+  console.log(JSON.stringify(require("./render/teams").renderTeams(menu), null, 2));
 }
 
-// Periodically re-assert offline status so the phone keeps getting notifications.
-setInterval(markUnavailable, 5 * 60 * 1000);
+async function main() {
+  if (DRY_RUN) {
+    await dryRun();
+    return;
+  }
 
-connectToWhatsApp();
+  if (REFRESH) {
+    console.log("Refreshing menus from Gmail...");
+    await refreshEmailMenus();
+    console.log("Done.");
+    if (!SEND_NOW) return;
+  }
+
+  senders = resolveSenders();
+  console.log(`Active senders: ${senders.map((s) => s.name).join(", ")}`);
+
+  const whatsapp = senders.find((s) => s.name === "whatsapp");
+  if (whatsapp) whatsapp.onCommand(handleCommand);
+
+  await Promise.all(senders.map((s) => s.connect()));
+
+  if (SEND_NOW) {
+    const sent = await sendMenu();
+    await Promise.all(senders.map((s) => s.close()));
+    process.exit(sent ? 0 : 1);
+  }
+
+  startCronJob();
+  startCatchUpTimer();
+  await catchUpIfMissed();
+}
+
+main().catch(async (err) => {
+  console.error("Fatal error:", err.message);
+  await sendAlert("Startup failed", `The lunch bot failed to start.\n\nError: ${err.message}`);
+  process.exit(1);
+});
