@@ -268,7 +268,7 @@ async function fetchBlavatnik(today) {
     updateLastChecked(MENU_PATH);
   }
 
-  if (!fs.existsSync(MENU_PATH)) return [];
+  if (!fs.existsSync(MENU_PATH)) return { items: [], stale: false };
 
   try {
     const cached = JSON.parse(fs.readFileSync(MENU_PATH, "utf-8"));
@@ -277,25 +277,25 @@ async function fetchBlavatnik(today) {
       : null;
     const stale = cachedMonday !== getWeekMonday().toDateString();
 
-    const dayMenu = cached.menu[today];
-    const lines = formatDayMenu(dayMenu);
-    if (lines.length) {
-      if (stale) lines.unshift("_Menu not yet updated this week_");
-      return lines;
-    }
+    // When stale (e.g. during vacation), don't show a past week's menu.
+    if (stale) return { items: [], stale: true };
 
-    // Today not in menu — find the next available weekday
+    const lines = formatDayMenu(cached.menu[today]);
+    if (lines.length) return { items: lines, stale: false };
+
+    // Today not in this week's menu — fall back to the next available weekday.
     const todayIdx = WEEKDAYS.indexOf(today);
     const fallbackDay =
       WEEKDAYS.find((day, i) => i > todayIdx && Array.isArray(cached.menu[day]) && cached.menu[day].length > 0) ||
       WEEKDAYS.find((day) => Array.isArray(cached.menu[day]) && cached.menu[day].length > 0);
 
-    if (!fallbackDay) return [];
-    const fallbackLines = [`_Next available: ${fallbackDay}_`, ...formatDayMenu(cached.menu[fallbackDay])];
-    if (stale) fallbackLines.unshift("_Menu not yet updated this week_");
-    return fallbackLines;
+    if (!fallbackDay) return { items: [], stale: false };
+    return {
+      items: [`_Next available: ${fallbackDay}_`, ...formatDayMenu(cached.menu[fallbackDay])],
+      stale: false,
+    };
   } catch {
-    return [];
+    return { items: [], stale: false };
   }
 }
 
