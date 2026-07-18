@@ -1,16 +1,16 @@
 require("dotenv").config();
 const cron = require("node-cron");
-const { buildMenu } = require("./scraper");
-const { renderWhatsApp } = require("./render/whatsapp");
-const { resolveSenders } = require("./senders");
-const { sendAlert } = require("./alerts");
-const { checkForNewMenu: refreshBlavatnik } = require("./blavatnik");
-const { checkForNewSchwarzmanMenu: refreshSchwarzman } = require("./schwarzman");
+const { buildMenu } = require("./src/buildMenu");
+const { renderWhatsApp } = require("./src/render/whatsapp");
+const { resolveSenders } = require("./src/senders");
+const { sendAlert } = require("./src/alerts");
+const { checkForNewMenu: refreshBlavatnik } = require("./src/menus/blavatnik");
+const { checkForNewSchwarzmanMenu: refreshSchwarzman } = require("./src/menus/schwarzman");
 const {
   alreadyClaimedToday,
   claimDailySend,
   completeDailySend,
-} = require("./dailySend");
+} = require("./src/dailySend");
 
 const DRY_RUN = process.argv.includes("--dry-run");
 const SEND_NOW = process.argv.includes("--send-now");
@@ -36,7 +36,7 @@ async function sendMenu() {
       "Menu sources degraded",
       `Today's menu was built with ${menu.errors.length} source(s) failing:\n\n` +
         menu.errors.map((e) => `- ${e.name}: ${e.message}`).join("\n") +
-        `\n\nThe message was still sent, minus those sources.\nSee RUNBOOK.md.`,
+        `\n\nThe message was still sent, minus those sources.\nSee the README runbook.`,
     );
   }
 
@@ -60,7 +60,7 @@ async function sendMenu() {
       "Failed to send menu",
       `The lunch bot could not deliver today's menu via any sender.\n\n` +
         failed.map(({ sender, r }) => `- ${sender.name}: ${r.reason?.message}`).join("\n") +
-        `\n\nSee RUNBOOK.md.`,
+        `\n\nSee the README runbook.`,
     );
     return false;
   }
@@ -89,7 +89,7 @@ async function sendDailyMenu(reason) {
     console.error("Error sending menu:", err.message);
     await sendAlert(
       "Failed to send menu",
-      `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nSee RUNBOOK.md.`,
+      `The lunch bot failed to send today's menu.\n\nError: ${err.message}\n\nSee the README runbook.`,
     );
   }
   completeDailySend(
@@ -134,7 +134,7 @@ function startCatchUpTimer() {
 
 /**
  * Handles !menu / !refresh. WhatsApp-only: a Teams workflow webhook is one-way,
- * so on Teams these are replaced by `--send-now` / `--refresh` (see RUNBOOK.md).
+ * so on Teams these are replaced by `--send-now` / `--refresh` (see the README).
  */
 async function handleCommand(command, reply) {
   if (command === "!refresh") {
@@ -171,7 +171,7 @@ async function dryRun() {
   console.log(`\nSections: ${menu.sections.length}  Errors: ${menu.errors.length}`);
   for (const err of menu.errors) console.log(`  ⚠️  ${err.name}: ${err.message}`);
   console.log("\nTeams Adaptive Card payload:");
-  console.log(JSON.stringify(require("./render/teams").renderTeams(menu), null, 2));
+  console.log(JSON.stringify(require("./src/render/teams").renderTeams(menu), null, 2));
 }
 
 async function main() {

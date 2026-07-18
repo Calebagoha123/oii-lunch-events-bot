@@ -4,7 +4,7 @@ const nodemailer = require("nodemailer");
  * Emails an operational alert. Silently no-ops when mail isn't configured, so
  * a missing ALERT_EMAIL never takes the bot down.
  *
- * ALERT_EMAIL should be a shared alias, not one person's inbox — see HANDOVER.md.
+ * ALERT_EMAIL should be a shared alias, not one person's inbox — see the README handover section.
  */
 async function sendAlert(subject, body) {
   const user = process.env.GMAIL_USER;

@@ -1,8 +1,9 @@
 const fs = require("fs");
 const path = require("path");
+const { DATA_DIR, PUNS_FILE } = require("./paths");
 
-const DEFAULT_PUNS_PATH = path.join(__dirname, "puns.txt");
-const DEFAULT_STATE_PATH = path.join(__dirname, "data", "pun-state.json");
+const DEFAULT_PUNS_PATH = PUNS_FILE;
+const DEFAULT_STATE_PATH = path.join(DATA_DIR, "pun-state.json");
 
 function dateKey(date = new Date()) {
   return date.toDateString();

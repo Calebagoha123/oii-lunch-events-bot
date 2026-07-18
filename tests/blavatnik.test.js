@@ -6,11 +6,11 @@ jest.mock("imapflow");
 jest.mock("mailparser");
 jest.mock("@anthropic-ai/sdk");
 
-const { fetchBlavatnik } = require("../blavatnik");
+const { fetchBlavatnik } = require("../src/menus/blavatnik");
 
 const MENU_PATH = path.join(__dirname, "../data/blavatnik-menu.json");
 
-const { getWeekMonday } = require("../blavatnik");
+const { getWeekMonday } = require("../src/dates");
 
 const SAMPLE_MENU = {
   Monday:    ["Grilled Chicken — ~1,380kcal", "Tomato Soup — ~120kcal", "Side Salad — ~80kcal"],
