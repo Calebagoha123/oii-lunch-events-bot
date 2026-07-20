@@ -40,7 +40,7 @@ Menu sources:
 
 Event sources:
 
-- **Schwarzman Centre** — scraped from its own What's On page (authoritative), including today's showtimes.
+- **Schwarzman Centre** — scraped from its own What's On page, including today's showtimes.
 - **Blavatnik & Andrew Wiles** — from the [oxfevents.com](https://www.oxfevents.com) JSON API, matched by venue.
 
 Every source **fails soft**: a broken source is named in the message and emailed as an alert, never silently dropped, and events never block the lunch menu.
@@ -56,14 +56,6 @@ The `SENDERS` env var (comma-separated) selects the channel(s):
 | `teams` *(default)* | Post to Teams via a Power Automate workflow webhook. |
 | `teams,whatsapp` | Post to both — useful during the migration. |
 | `whatsapp` | WhatsApp only (**deprecated**). |
-
-### Why WhatsApp is deprecated
-
-The WhatsApp backend carries costs Teams doesn't: the session is bound to one **personal phone number**, needs a **physical QR rescan** from that handset to re-authenticate, and can't run on cloud IPs (WhatsApp blocks them). Teams is an outbound HTTPS POST — none of those problems.
-
-**Once the Teams channel has traction, delete it:** remove `src/senders/whatsapp.js`, the `@whiskeysockets/baileys` and `qrcode` dependencies, and the `auth_info_baileys/` mount. Nothing else depends on it.
-
-> The in-chat `!menu` / `!refresh` commands work on WhatsApp only — a Teams workflow webhook is one-way. On Teams, use the CLI equivalents `node index.js --send-now` and `node index.js --refresh`.
 
 ---
 
@@ -143,7 +135,7 @@ docker compose run --rm bot node index.js --send-now   # post now (test)
 
 `restart: unless-stopped` handles crashes and reboots. The image is multi-stage and runs as a non-root user.
 
-**Hosting note:** Teams is outbound HTTPS, so any host works. WhatsApp (deprecated) is blocked on cloud IP ranges and must run on a residential/office network. The bot fires at 11:00 weekdays; if the host is asleep then, a catch-up timer sends as soon as it's back online the same day — so run it on an always-on machine.
+**Hosting note:** Teams is outbound HTTPS, so any host works. The bot fires at 11:00 weekdays; if the host is asleep then, a catch-up timer sends as soon as it's back online the same day — so run it on an always-on machine.
 
 ### Without Docker
 
@@ -213,7 +205,7 @@ Diagnosis, in priority order.
 
 1. **Weekday?** The bot only posts Mon–Fri. Weekends are silent by design.
 2. **Vacation?** Out of term the cafés stop updating and the bot posts *"the cafés look closed for the vacation…"* instead of a blank menu — that's correct behaviour, not a bug. Confirm with `node index.js --dry-run`.
-3. **Service running?** On Brains it runs as a `systemd --user` service (not Docker — Docker isn't installed there):
+3. **Service running?** On Brains it runs as a `systemd --user` service:
    ```bash
    systemctl --user status lunch-bot.service
    journalctl --user -u lunch-bot.service -n 100 --no-pager
@@ -250,16 +242,13 @@ Keep this current — an out-of-date list is how the bot dies quietly. Fill in e
 
 | Thing | Where | Held by | How to rotate |
 |---|---|---|---|
-| GitHub repo | `Calebagoha123/oxford_lunch_menus` | Caleb + collaborators | Settings → Collaborators (or Transfer ownership) |
 | Teams webhook | Power Automate flow on the channel | flow owner | Recreate via ⋯ → Workflows; add co-owners |
-| Gmail inbox | account receiving the menu emails | ??? | Ensure the cafés keep mailing this address |
+| Gmail inbox | account receiving the menu emails | oxfordmenu7(at)gmail(dot)com | Ensure the cafés keep mailing this address |
 | Gmail App Password | `.env` → `GMAIL_APP_PASSWORD` | ??? | Google Account → Security → App Passwords |
 | Anthropic API key | `.env` → `ANTHROPIC_API_KEY` | ??? (who pays?) | console.anthropic.com → API keys |
 | Alert email | `.env` → `ALERT_EMAIL` | should be a shared alias | Point at a distribution list |
 | Host | Brains (`brains.oii.ox.ac.uk`), `systemd --user` service | dept-maintained | See [runbook](#operations--runbook) |
 | WhatsApp session *(deprecated)* | `auth_info_baileys/` on the host | a personal phone number | Rescan QR from the paired phone |
-
-**Before leaving:** fill in the `???`s above, add the permanent staff member as a repo collaborator and Power Automate co-owner, and confirm they can reach the host.
 
 ---
 
