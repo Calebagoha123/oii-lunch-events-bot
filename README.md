@@ -3,9 +3,9 @@
 A Node.js bot that, every weekday at 11:00, posts a single message to a **Microsoft Teams** channel with:
 
 - **What's on around you today** — events at the Schwarzman Centre, the Blavatnik School of Government, and the Andrew Wiles (Maths) building.
-- **The day's lunch menus** from Dakota Café (Cohen Quad), Blavatnik Café, and the Schwarzman Centre — with opening hours, prices, and a daily pun.
+- **The day's lunch menus** from Dakota Café (Cohen Quad), Blavatnik Café, and the Schwarzman Centre — with opening hours, prices, and a daily pun (Bruno's suggestion).
 
-It can also post to WhatsApp, but that path is **deprecated** (see [Senders](#senders)).
+It can also post to WhatsApp, but that path is **deprecated** (see [Senders](#senders)); RIP 2025/6 SDS WhatsApp GC.
 
 This README is the single source of truth: setup, development, operations, and handover are all below.
 
@@ -36,14 +36,14 @@ This README is the single source of truth: setup, development, operations, and h
 Menu sources:
 
 - **Dakota Café** — scraped live from the Exeter College catering site.
-- **Blavatnik & Schwarzman cafés** — parsed from a weekly menu image emailed to a Gmail inbox: IMAP fetches the email, Claude Vision reads the image, and the result is cached per week in `data/`.
+- **Blavatnik & Schwarzman cafés** — parsed from a weekly menu image emailed to a Gmail inbox: IMAP fetches the email, Claude Vision reads the image, and the result is cached per week in `data/`. Blavatnik sends every friday as part of a mailing list, Schwarzman has no online version as of now so one brave soul must take a picture at the start of the week and send it to oxfordmenu7(at)gmail(dot)com with the title Schwarzman Menu
 
 Event sources:
 
 - **Schwarzman Centre** — scraped from its own What's On page, including today's showtimes.
 - **Blavatnik & Andrew Wiles** — from the [oxfevents.com](https://www.oxfevents.com) JSON API, matched by venue.
 
-Every source **fails soft**: a broken source is named in the message and emailed as an alert, never silently dropped, and events never block the lunch menu.
+Every source **fails soft**: a broken source is named in the message and emailed as an alert, and events never block the lunch menu.
 
 ---
 
@@ -54,7 +54,6 @@ The `SENDERS` env var (comma-separated) selects the channel(s):
 | `SENDERS` | Behaviour |
 |---|---|
 | `teams` *(default)* | Post to Teams via a Power Automate workflow webhook. |
-| `teams,whatsapp` | Post to both — useful during the migration. |
 | `whatsapp` | WhatsApp only (**deprecated**). |
 
 ---
