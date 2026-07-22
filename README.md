@@ -9,8 +9,6 @@ It can also post to WhatsApp, but that path is **deprecated** (see [Senders](#se
 
 ![The daily post as it appears in the Teams channel](docs/teams-preview.png)
 
-This README is the single source of truth: setup, development, operations, and handover are all below.
-
 ---
 
 ## Contents
