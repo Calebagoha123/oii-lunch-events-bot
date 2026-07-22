@@ -123,7 +123,7 @@ Copy `.env.example` to `.env` and fill it in. For the default Teams setup you ne
 
 ## Running it
 
-### With Docker (recommended for deployment)
+### With Docker
 
 Teams needs no QR scan — just a valid `TEAMS_WEBHOOK_URL`.
 
@@ -240,15 +240,15 @@ Set `SENDERS=teams` + `TEAMS_WEBHOOK_URL` in `.env` first so the redeploy also m
 
 Keep this current — an out-of-date list is how the bot dies quietly. Fill in every `???`.
 
-| Thing | Where | Held by | How to rotate |
-|---|---|---|---|
-| Teams webhook | Power Automate flow on the channel | flow owner | Recreate via ⋯ → Workflows; add co-owners |
-| Gmail inbox | account receiving the menu emails | oxfordmenu7(at)gmail(dot)com | Ensure the cafés keep mailing this address |
-| Gmail App Password | `.env` → `GMAIL_APP_PASSWORD` | ??? | Google Account → Security → App Passwords |
-| Anthropic API key | `.env` → `ANTHROPIC_API_KEY` | ??? (who pays?) | console.anthropic.com → API keys |
-| Alert email | `.env` → `ALERT_EMAIL` | should be a shared alias | Point at a distribution list |
-| Host | Brains (`brains.oii.ox.ac.uk`), `systemd --user` service | dept-maintained | See [runbook](#operations--runbook) |
-| WhatsApp session *(deprecated)* | `auth_info_baileys/` on the host | a personal phone number | Rescan QR from the paired phone |
+| Thing | Where | Held by |
+|---|---|---|
+| Teams webhook | Power Automate flow on the channel | flow owner | 
+| Gmail inbox | account receiving the menu emails | oxfordmenu7(at)gmail(dot)com |
+| Gmail App Password | `.env` → `GMAIL_APP_PASSWORD` | on brains |
+| Anthropic API key | `.env` → `ANTHROPIC_API_KEY` | on brains |
+| Alert email | `.env` → `ALERT_EMAIL` | should be a shared alias |
+| Host | Brains (`brains.oii.ox.ac.uk`), `systemd --user` service | dept-maintained |
+| WhatsApp session *(deprecated)* | `auth_info_baileys/` on the host | a personal phone number (Rescan QR from the paired phone) |
 
 ---
 
