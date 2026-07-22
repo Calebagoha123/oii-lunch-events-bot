@@ -7,6 +7,8 @@ A Node.js bot that, every weekday at 11:00, posts a single message to a **Micros
 
 It can also post to WhatsApp, but that path is **deprecated** (see [Senders](#senders)); RIP 2025/6 SDS WhatsApp GC.
 
+![The daily post as it appears in the Teams channel](docs/teams-preview.png)
+
 This README is the single source of truth: setup, development, operations, and handover are all below.
 
 ---
