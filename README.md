@@ -152,8 +152,8 @@ node index.js --refresh          # force a Gmail re-read (add --send-now to also
 ## Local development
 
 ```bash
-git clone git@github.com:Calebagoha123/oxford_lunch_menus.git
-cd oxford_lunch_menus
+git clone git@github.com:Calebagoha123/oii-lunch-events-bot.git
+cd oii-lunch-events-bot
 npm ci        # exact locked deps, incl. the correct platform sharp binary
 npm test      # should be all green
 ```
@@ -227,7 +227,7 @@ Diagnosis, in priority order.
 ```bash
 ssh <maintainer>@brains.oii.ox.ac.uk
 cd ~/oxford_lunch_menus && cp .env /tmp/lunch.env && cp -r data /tmp/lunch-data
-cd ~ && rm -rf oxford_lunch_menus && git clone git@github.com:Calebagoha123/oxford_lunch_menus.git
+cd ~ && rm -rf oxford_lunch_menus && git clone git@github.com:Calebagoha123/oii-lunch-events-bot.git oxford_lunch_menus
 cd oxford_lunch_menus && cp /tmp/lunch.env .env && cp -r /tmp/lunch-data/* data/
 source ~/.nvm/nvm.sh && npm ci && node index.js --dry-run
 systemctl --user restart lunch-bot.service
