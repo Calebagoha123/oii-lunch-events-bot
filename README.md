@@ -1,4 +1,4 @@
-# Oxford Lunch Menu Bot
+# Events + Lunch Menus near the OII 
 
 A Node.js bot that, every weekday at 11:00, posts a single message to a **Microsoft Teams** channel with:
 
