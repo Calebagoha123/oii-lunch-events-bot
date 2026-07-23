@@ -106,7 +106,7 @@ data/                  Weekly caches, send claims, pun state (bind-mounted, giti
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and fill it in. For the default Teams setup you need `TEAMS_WEBHOOK_URL`, the Gmail/Anthropic keys for the menu sources, and `ALERT_EMAIL`.
+Copy `.env.example` to `.env` and fill it in. For the default Teams setup you need `TEAMS_WEBHOOK_URL`, the Gmail/Anthropic keys for the menu sources, and `GITHUB_REPO` + `GITHUB_TOKEN` for alerting.
 
 | Variable | Needed for | Notes |
 |---|---|---|
@@ -115,7 +115,8 @@ Copy `.env.example` to `.env` and fill it in. For the default Teams setup you ne
 | `GMAIL_USER` | Blavatnik/Schwarzman menus | Gmail address receiving the menu emails. |
 | `GMAIL_APP_PASSWORD` | Blavatnik/Schwarzman menus | Gmail App Password (needs 2FA on the account). |
 | `ANTHROPIC_API_KEY` | Blavatnik/Schwarzman menus | Claude Vision image parsing. |
-| `ALERT_EMAIL` | alerting | **Use a shared alias**, not a personal inbox. |
+| `GITHUB_REPO` | alerting | `owner/name` of this repo — where alert issues are opened. |
+| `GITHUB_TOKEN` | alerting | Token with `issues:write`. Alerts no-op if unset (never blocks a send). |
 | `GROUP_NAME` | WhatsApp only | Exact group name; unused for Teams. |
 
 ---
@@ -211,7 +212,7 @@ Diagnosis, in priority order.
    systemctl --user restart lunch-bot.service
    ```
    Repeated `Connection Closed` lines mean the WhatsApp session dropped — the deprecated backend failing, and the reason to finish the Teams migration.
-4. **Alert email?** Degraded sources, total send failures, and WhatsApp logout all email `ALERT_EMAIL`. No alert + no message usually means the host was asleep at 11:00.
+4. **Alerts?** Degraded sources, total send failures, and WhatsApp logout open a **GitHub issue** (labelled `bot-alert`) on the repo; a recurring failure comments on the existing issue rather than opening a new one. Check the [Issues tab](../../issues?q=is%3Aissue+label%3Abot-alert). No issue + no message usually means the host was asleep at 11:00.
 5. **Force a send:** `node index.js --send-now` (or via Docker, `docker compose run --rm bot node index.js --send-now`).
 
 **"One café is missing / says 'not updated this week'."**
@@ -245,7 +246,7 @@ Keep this current — an out-of-date list is how the bot dies quietly. Fill in e
 | Gmail inbox | account receiving the menu emails | oxfordmenu7(at)gmail(dot)com |
 | Gmail App Password | `.env` → `GMAIL_APP_PASSWORD` | on brains |
 | Anthropic API key | `.env` → `ANTHROPIC_API_KEY` | on brains |
-| Alert email | `.env` → `ALERT_EMAIL` | should be a shared alias |
+| Alert token | `.env` → `GITHUB_TOKEN` (+ `GITHUB_REPO`) | needs `issues:write`; alerts land in the repo's Issues tab |
 | Host | Brains (`brains.oii.ox.ac.uk`), `systemd --user` service | dept-maintained |
 | WhatsApp session *(deprecated)* | `auth_info_baileys/` on the host | a personal phone number (Rescan QR from the paired phone) |
 
@@ -260,5 +261,5 @@ Keep this current — an out-of-date list is how the bot dies quietly. Fill in e
 | `@anthropic-ai/sdk` | Claude Vision menu-image parsing |
 | `sharp` | Compressing images before Vision upload |
 | `node-cron` | The 11:00 weekday schedule |
-| `nodemailer` | Alert emails |
+| `axios` (GitHub REST API) | Opening `bot-alert` issues on failure |
 | `@whiskeysockets/baileys` + `qrcode` | WhatsApp Web API (deprecated) |
