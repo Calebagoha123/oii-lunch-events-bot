@@ -238,7 +238,7 @@ Set `SENDERS=teams` + `TEAMS_WEBHOOK_URL` in `.env` first so the redeploy also m
 
 ## Handover: accounts & credentials
 
-Keep this current — an out-of-date list is how the bot dies quietly. Fill in every `???`.
+Keep this current.
 
 | Thing | Where | Held by |
 |---|---|---|
